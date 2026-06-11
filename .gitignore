@@ -23,5 +23,4 @@ git-portable/
 
 # PM 전용 도구 (사업장 배포 불필요)
 배포패키지_준비.ps1
-설치.bat
 *.zip

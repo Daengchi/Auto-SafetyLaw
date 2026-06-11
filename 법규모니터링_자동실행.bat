@@ -2,7 +2,7 @@
 chcp 65001 >nul
 set PYTHONUTF8=1
 set ROOT=%~dp0
-set PY=%ROOT%python\python.exe
+if exist "%ROOT%python\python.exe" (set PY=%ROOT%python\python.exe) else (set PY=python)
 set GIT=%ROOT%git-portable\cmd\git.exe
 
 if not exist "%ROOT%logs" mkdir "%ROOT%logs"
