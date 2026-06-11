@@ -1,0 +1,22 @@
+@echo off
+chcp 65001 >nul
+set PYTHONUTF8=1
+set ROOT=%~dp0
+set PY=%ROOT%python\python.exe
+set GIT=%ROOT%git-portable\cmd\git.exe
+
+echo 코드 업데이트 확인 중...
+"%GIT%" -C "%ROOT%" pull --quiet
+
+echo.
+echo ══════════════════════════════════════════════
+echo   법규준수평가표 신규 생성
+echo   laws.json 에 정의된 법령 전체 처리
+echo ══════════════════════════════════════════════
+echo.
+
+cd /d "%ROOT%01. 법규 데이터 관리"
+"%PY%" main.py --output "%ROOT%01. 법규 데이터 관리\output"
+
+echo.
+pause

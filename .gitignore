@@ -1,0 +1,27 @@
+# 환경 변수 (API 키, 비밀번호 — 절대 커밋 금지)
+.env
+**/.env
+
+# 사업장별 개별 설정
+laws.json
+03. 법규 제개정 이메일 알림/recipients.json
+
+# 실행 결과물
+amendments.json
+logs/
+**/output/
+02. 제개정사항 모니터링/data/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+
+# 번들 런타임 (Python Embeddable + MinGit)
+python/
+git-portable/
+
+# PM 전용 도구 (사업장 배포 불필요)
+배포패키지_준비.ps1
+설치.bat
+*.zip
