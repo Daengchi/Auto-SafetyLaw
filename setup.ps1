@@ -1,5 +1,5 @@
-# setup.ps1 — Auto-SafetyLaw 설치 스크립트
-# 설치.bat 에서 자동으로 실행됩니다. 직접 실행하지 마세요.
+# setup.ps1 - Auto-SafetyLaw installer
+# Run via install.bat - do not run directly.
 
 $INSTALL_DIR = "C:\SafetyLaw"
 $REPO_URL    = "https://github.com/Daengchi/Auto-SafetyLaw.git"
@@ -7,137 +7,142 @@ $PY_VER      = "3.12.9"
 $PY_URL      = "https://www.python.org/ftp/python/$PY_VER/python-$PY_VER-embed-amd64.zip"
 $GIT_URL     = "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.2/MinGit-2.47.1.2-64-bit.zip"
 
-$OutputEncoding = [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-
 function Step { param($n, $msg) Write-Host "[$n] $msg" -ForegroundColor Cyan }
-function OK   { Write-Host "    완료." -ForegroundColor Green }
+function OK   { Write-Host "    Done." -ForegroundColor Green }
 function Fail {
     param($msg)
-    Write-Host "    [오류] $msg" -ForegroundColor Red
-    Read-Host "Enter 를 눌러 종료"
+    Write-Host "[ERROR] $msg" -ForegroundColor Red
+    Read-Host "Press Enter to exit"
     exit 1
 }
 
 if (Test-Path $INSTALL_DIR) {
-    Write-Host "[오류] $INSTALL_DIR 이(가) 이미 존재합니다." -ForegroundColor Red
-    Write-Host "       폴더를 삭제하거나 INSTALL_DIR 경로를 변경한 후 다시 실행하세요." -ForegroundColor Yellow
-    Read-Host "Enter 를 눌러 종료"
+    Write-Host "[ERROR] $INSTALL_DIR already exists." -ForegroundColor Red
+    Write-Host "        Delete the folder and run again." -ForegroundColor Yellow
+    Read-Host "Press Enter to exit"
     exit 1
 }
 
 Write-Host ""
-Write-Host "======================================================" -ForegroundColor Cyan
-Write-Host "  안전보건 법규 자동화 -- 설치 시작"
-Write-Host "  설치 경로: $INSTALL_DIR"
-Write-Host "======================================================" -ForegroundColor Cyan
+Write-Host "======================================================"
+Write-Host "  Auto-SafetyLaw - Installation"
+Write-Host "  Target: $INSTALL_DIR"
+Write-Host "======================================================"
 Write-Host ""
 
-# ── 1/5: Portable Git ─────────────────────────────────────────────────────────
-Step "1/5" "Portable Git 다운로드 중..."
+# 1/5: Portable Git
+Step "1/5" "Downloading Portable Git..."
 $TEMPGIT = "$env:TEMP\mingit_setup"
 if (Test-Path $TEMPGIT) { Remove-Item $TEMPGIT -Recurse -Force }
 try {
     Invoke-WebRequest $GIT_URL -OutFile "$env:TEMP\mingit.zip" -UseBasicParsing
     Expand-Archive "$env:TEMP\mingit.zip" -DestinationPath $TEMPGIT -Force
     Remove-Item "$env:TEMP\mingit.zip"
-} catch { Fail "Git 다운로드 실패: $_" }
+} catch { Fail "Git download failed: $_" }
 OK
 
-# ── 2/5: 저장소 클론 ───────────────────────────────────────────────────────────
-Step "2/5" "저장소 클론 중..."
+# 2/5: Clone repository
+Step "2/5" "Cloning repository..."
 & "$TEMPGIT\cmd\git.exe" clone $REPO_URL $INSTALL_DIR
-if ($LASTEXITCODE -ne 0) { Fail "클론 실패. 네트워크 연결 및 방화벽을 확인하세요." }
+if ($LASTEXITCODE -ne 0) { Fail "Clone failed. Check network or firewall." }
 OK
 
-# ── 3/5: Portable Git 이동 ────────────────────────────────────────────────────
-Step "3/5" "Portable Git 배치 중..."
+# 3/5: Move Portable Git
+Step "3/5" "Moving Portable Git..."
 Move-Item $TEMPGIT "$INSTALL_DIR\git-portable"
 OK
 
-# ── 4/5: Python 환경 구성 ─────────────────────────────────────────────────────
-Step "4/5" "Python 환경 구성 중 (수 분 소요)..."
+# 4/5: Python setup
+Step "4/5" "Setting up Python (may take a few minutes)..."
 $PYDIR = "$INSTALL_DIR\python"
 New-Item -ItemType Directory -Path $PYDIR -Force | Out-Null
-
 try {
     Invoke-WebRequest $PY_URL -OutFile "$env:TEMP\py-embed.zip" -UseBasicParsing
     Expand-Archive "$env:TEMP\py-embed.zip" -DestinationPath $PYDIR -Force
     Remove-Item "$env:TEMP\py-embed.zip"
-} catch { Fail "Python 다운로드 실패: $_" }
+} catch { Fail "Python download failed: $_" }
 
-if (-not (Test-Path "$PYDIR\python.exe")) { Fail "Python 압축 해제 실패." }
+if (-not (Test-Path "$PYDIR\python.exe")) { Fail "Python extraction failed." }
 
-# site.py 활성화 (pip 필수)
 $pth = (Get-ChildItem $PYDIR -Filter "python3*._pth").FullName
 (Get-Content $pth) -replace '#import site', 'import site' | Set-Content $pth
 
-# pip 설치
 Invoke-WebRequest "https://bootstrap.pypa.io/get-pip.py" -OutFile "$INSTALL_DIR\get-pip.py" -UseBasicParsing
 & "$PYDIR\python.exe" "$INSTALL_DIR\get-pip.py" --quiet
-if ($LASTEXITCODE -ne 0) { Fail "pip 설치 실패." }
+if ($LASTEXITCODE -ne 0) { Fail "pip installation failed." }
 Remove-Item "$INSTALL_DIR\get-pip.py"
 
-# 패키지 설치
-& "$PYDIR\python.exe" -m pip install -q -r "$INSTALL_DIR\01. 법규 데이터 관리\requirements.txt"
-& "$PYDIR\python.exe" -m pip install -q -r "$INSTALL_DIR\02. 제개정사항 모니터링\requirements.txt"
-& "$PYDIR\python.exe" -m pip install -q -r "$INSTALL_DIR\03. 법규 제개정 이메일 알림\requirements.txt"
+$reqFiles = Get-ChildItem $INSTALL_DIR -Recurse -Filter "requirements.txt"
+foreach ($req in $reqFiles) {
+    & "$PYDIR\python.exe" -m pip install -q -r $req.FullName
+}
 OK
 
-# ── 5/5: 설정 파일 초기화 ─────────────────────────────────────────────────────
-Step "5/5" "설정 파일 생성 중..."
+# 5/5: Config files
+Step "5/5" "Creating config files..."
 
 if (-not (Test-Path "$INSTALL_DIR\laws.json")) {
-    Copy-Item "$INSTALL_DIR\laws.json.example" "$INSTALL_DIR\laws.json"
-}
-foreach ($proj in @("01. 법규 데이터 관리", "02. 제개정사항 모니터링", "03. 법규 제개정 이메일 알림")) {
-    if (-not (Test-Path "$INSTALL_DIR\$proj\.env")) {
-        Copy-Item "$INSTALL_DIR\$proj\.env.example" "$INSTALL_DIR\$proj\.env"
-    }
-}
-if (-not (Test-Path "$INSTALL_DIR\03. 법규 제개정 이메일 알림\recipients.json")) {
-    Copy-Item "$INSTALL_DIR\03. 법규 제개정 이메일 알림\recipients.json.example" `
-              "$INSTALL_DIR\03. 법규 제개정 이메일 알림\recipients.json"
+    $ex = Get-Item "$INSTALL_DIR\laws.json.example" -ErrorAction SilentlyContinue
+    if ($ex) { Copy-Item $ex.FullName "$INSTALL_DIR\laws.json" }
 }
 
-foreach ($dir in @("logs", "01. 법규 데이터 관리\output", "02. 제개정사항 모니터링\data", "02. 제개정사항 모니터링\output")) {
-    New-Item -ItemType Directory -Path "$INSTALL_DIR\$dir" -Force | Out-Null
+$projFolders = Get-ChildItem $INSTALL_DIR -Directory | Where-Object { $_.Name -match "^\d+\." }
+foreach ($proj in $projFolders) {
+    $envFile = Join-Path $proj.FullName ".env"
+    $envEx   = Join-Path $proj.FullName ".env.example"
+    if (-not (Test-Path $envFile) -and (Test-Path $envEx)) {
+        Copy-Item $envEx $envFile
+    }
+    $rec   = Join-Path $proj.FullName "recipients.json"
+    $recEx = Join-Path $proj.FullName "recipients.json.example"
+    if (-not (Test-Path $rec) -and (Test-Path $recEx)) {
+        Copy-Item $recEx $rec
+    }
+    foreach ($sub in @("output", "data")) {
+        New-Item -ItemType Directory -Path (Join-Path $proj.FullName $sub) -Force | Out-Null
+    }
 }
+
+New-Item -ItemType Directory -Path "$INSTALL_DIR\logs" -Force | Out-Null
 OK
 
-# ── 완료 안내 ──────────────────────────────────────────────────────────────────
+# Done
 Write-Host ""
-Write-Host "======================================================" -ForegroundColor Green
-Write-Host "  설치 완료! 아래 파일을 설정한 후 사용하세요." -ForegroundColor Green
+Write-Host "======================================================"
+Write-Host "  Installation complete!" -ForegroundColor Green
 Write-Host ""
-Write-Host "  [1] API 키  (https://www.law.go.kr 에서 무료 발급)"
-Write-Host "      $INSTALL_DIR\01. 법규 데이터 관리\.env"
-Write-Host "      $INSTALL_DIR\02. 제개정사항 모니터링\.env"
-Write-Host ""
-Write-Host "  [2] 이메일 / SMTP 설정"
-Write-Host "      $INSTALL_DIR\03. 법규 제개정 이메일 알림\.env"
-Write-Host ""
-Write-Host "  [3] 수신자 이메일 목록"
-Write-Host "      $INSTALL_DIR\03. 법규 제개정 이메일 알림\recipients.json"
-Write-Host ""
-Write-Host "  [4] 관리 법령 목록  (불필요한 항목 삭제)"
+Write-Host "  Configure these files before running:"
+Write-Host "  [1] API key  (get free key at https://www.law.go.kr)"
+$projFolders | Where-Object { $_.Name -match "01\.|02\." } | ForEach-Object {
+    Write-Host "      $($_.FullName)\.env"
+}
+Write-Host "  [2] Email/SMTP"
+$projFolders | Where-Object { $_.Name -match "03\." } | ForEach-Object {
+    Write-Host "      $($_.FullName)\.env"
+    Write-Host "      $($_.FullName)\recipients.json"
+}
+Write-Host "  [3] Law list (remove unneeded laws)"
 Write-Host "      $INSTALL_DIR\laws.json"
-Write-Host "======================================================" -ForegroundColor Green
+Write-Host "======================================================"
 Write-Host ""
 
-$reg = Read-Host "작업 스케줄러 등록할까요? 평일 09:00 자동 실행 [Y/N]"
+$reg = Read-Host "Register Task Scheduler? (Weekdays 09:00 auto-run) [Y/N]"
 if ($reg -ieq 'Y') {
-    try {
-        Register-ScheduledTask `
-            -TaskName "SafetyLaw-Monitor" `
-            -Trigger  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '09:00') `
-            -Action   (New-ScheduledTaskAction -Execute "$INSTALL_DIR\법규모니터링_자동실행.bat") `
-            -RunLevel Highest -Force | Out-Null
-        Write-Host "  작업 스케줄러 등록 완료." -ForegroundColor Green
-    } catch {
-        Write-Host "  [주의] 등록 실패. 관리자 권한으로 다시 실행하세요." -ForegroundColor Yellow
+    $bat = Get-ChildItem $INSTALL_DIR -Filter "*자동실행*" | Select-Object -First 1
+    if ($bat) {
+        try {
+            Register-ScheduledTask `
+                -TaskName "SafetyLaw-Monitor" `
+                -Trigger  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At '09:00') `
+                -Action   (New-ScheduledTaskAction -Execute $bat.FullName) `
+                -RunLevel Highest -Force | Out-Null
+            Write-Host "  Task Scheduler registered." -ForegroundColor Green
+        } catch {
+            Write-Host "  [WARNING] Registration failed. Run as Administrator." -ForegroundColor Yellow
+        }
     }
 }
 
 Write-Host ""
-Write-Host "  설정 완료 후 01_신규생성.bat 을 실행하세요." -ForegroundColor Cyan
-Read-Host "Enter 를 눌러 종료"
+Write-Host "  Run 01_신규생성.bat to generate your first report." -ForegroundColor Cyan
+Read-Host "Press Enter to exit"
