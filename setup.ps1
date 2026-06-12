@@ -50,6 +50,8 @@ OK
 # 3/5: Move Portable Git
 Step "3/5" "Moving Portable Git..."
 Move-Item $TEMPGIT "$INSTALL_DIR\git-portable"
+$safeDir = $INSTALL_DIR.Replace('\', '/')
+& "$INSTALL_DIR\git-portable\cmd\git.exe" config --system safe.directory $safeDir
 OK
 
 # 4/5: Python setup

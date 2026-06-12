@@ -12,16 +12,17 @@ echo ============================================ >> "%LOG%"
 echo [%date% %time%] 실행 시작 >> "%LOG%"
 
 :: 코드 자동 업데이트 (GitHub 최신 버전 반영)
+"%GIT%" config --global --add safe.directory C:/SafetyLaw >> "%LOG%" 2>&1
 "%GIT%" -C "%ROOT:~0,-1%" pull --quiet >> "%LOG%" 2>&1
 
 :: 02. 제개정사항 모니터링
 cd /d "%ROOT%02. 제개정사항 모니터링"
-set PYTHONPATH=%ROOT%02. 제개정사항 모니터링
+set PYTHONPATH=%CD%
 "%PY%" main.py --no-report >> "%LOG%" 2>&1
 
 :: 03. 법규 제개정 이메일 알림
 cd /d "%ROOT%03. 법규 제개정 이메일 알림"
-set PYTHONPATH=%ROOT%03. 법규 제개정 이메일 알림
+set PYTHONPATH=%CD%
 "%PY%" main.py >> "%LOG%" 2>&1
 
 echo [%date% %time%] 실행 종료 >> "%LOG%"
