@@ -12,7 +12,8 @@ echo ============================================ >> "%LOG%"
 echo [%date% %time%] 실행 시작 >> "%LOG%"
 
 :: 코드 자동 업데이트 (GitHub 최신 버전 반영)
-"%GIT%" config --global --add safe.directory C:/SafetyLaw >> "%LOG%" 2>&1
+set SAFE_DIR=%ROOT:~0,-1%
+"%GIT%" config --global --add safe.directory "%SAFE_DIR:\=/%" >> "%LOG%" 2>&1
 "%GIT%" -C "%ROOT:~0,-1%" pull --quiet >> "%LOG%" 2>&1
 
 :: 02. 제개정사항 모니터링

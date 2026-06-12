@@ -1,7 +1,16 @@
 # setup.ps1 - Auto-SafetyLaw installer
 # Run via install.bat - do not run directly.
 
-$INSTALL_DIR = "C:\SafetyLaw"
+Add-Type -AssemblyName System.Windows.Forms
+$dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+$dialog.Description         = "Select the folder where 'SafetyLaw' will be installed (e.g. select C:\ to install at C:\SafetyLaw)"
+$dialog.ShowNewFolderButton = $true
+$dialog.SelectedPath        = "C:\"
+if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
+    Write-Host "Installation cancelled." -ForegroundColor Yellow
+    exit 0
+}
+$INSTALL_DIR = Join-Path $dialog.SelectedPath.TrimEnd('\') "SafetyLaw"
 $REPO_URL    = "https://github.com/Daengchi/Auto-SafetyLaw.git"
 $PY_VER      = "3.12.9"
 $PY_URL      = "https://www.python.org/ftp/python/$PY_VER/python-$PY_VER-embed-amd64.zip"

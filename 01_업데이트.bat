@@ -6,7 +6,8 @@ if exist "%ROOT%python\python.exe" (set PY=%ROOT%python\python.exe) else (set PY
 set GIT=%ROOT%git-portable\cmd\git.exe
 
 echo 코드 업데이트 확인 중...
-"%GIT%" config --global --add safe.directory C:/SafetyLaw
+set SAFE_DIR=%ROOT:~0,-1%
+"%GIT%" config --global --add safe.directory "%SAFE_DIR:\=/%"
 "%GIT%" -C "%ROOT:~0,-1%" pull --quiet
 
 echo.
