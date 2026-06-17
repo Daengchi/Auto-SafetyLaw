@@ -79,13 +79,13 @@ $pth = (Get-ChildItem $PYDIR -Filter "python3*._pth").FullName
 (Get-Content $pth) -replace '#import site', 'import site' | Set-Content $pth
 
 Invoke-WebRequest "https://bootstrap.pypa.io/get-pip.py" -OutFile "$INSTALL_DIR\get-pip.py" -UseBasicParsing
-& "$PYDIR\python.exe" "$INSTALL_DIR\get-pip.py" --quiet
+& "$PYDIR\python.exe" "$INSTALL_DIR\get-pip.py" --quiet --no-warn-script-location
 if ($LASTEXITCODE -ne 0) { Fail "pip installation failed." }
 Remove-Item "$INSTALL_DIR\get-pip.py"
 
 $reqFiles = Get-ChildItem $INSTALL_DIR -Recurse -Filter "requirements.txt"
 foreach ($req in $reqFiles) {
-    & "$PYDIR\python.exe" -m pip install -q -r $req.FullName
+    & "$PYDIR\python.exe" -m pip install -q -r $req.FullName --no-warn-script-location
 }
 OK
 
