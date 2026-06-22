@@ -15,7 +15,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 from src.exporter import (
-    _style_sheet, _add_haedan_dropdown, _add_title_row,
+    _style_sheet, _add_haedan_dropdown, _add_title_row, _set_print_layout,
     _HEADER_FILL, _HEADER_FONT, _HEADER_ALIGN, _BORDER,
 )
 
@@ -204,6 +204,7 @@ def _rewrite_sheet(ws, new_df: pd.DataFrame, change_types: list,
                 ws.cell(row=row_idx, column=col_idx).fill = _YELLOW_FILL
 
     _add_haedan_dropdown(ws, len(new_df), start_row=3)
+    _set_print_layout(ws)
     if is_admrul:
         ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
 

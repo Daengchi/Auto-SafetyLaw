@@ -83,6 +83,25 @@ def _add_title_row(ws, law_name: str, ncols: int) -> None:
     ws.row_dimensions[1].height = 26
 
 
+# cm → inch (openpyxl 여백 단위는 inch)
+_CM = 1 / 2.54
+
+
+def _set_print_layout(ws) -> None:
+    """상세 시트 인쇄 설정: 가로 방향, 모든 열을 한 페이지 너비에 맞춤,
+    여백(좌우 1.5cm / 위아래 1.0cm / 머리글·바닥글 1.3cm)."""
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    ws.page_setup.orientation = "landscape"
+    ws.page_setup.fitToWidth  = 1   # 모든 열을 1페이지 너비에 맞춤
+    ws.page_setup.fitToHeight = 0   # 세로(행)는 여러 페이지 허용
+    ws.page_margins.left   = 1.5 * _CM
+    ws.page_margins.right  = 1.5 * _CM
+    ws.page_margins.top    = 1.0 * _CM
+    ws.page_margins.bottom = 1.0 * _CM
+    ws.page_margins.header = 1.3 * _CM
+    ws.page_margins.footer = 1.3 * _CM
+
+
 def _merge_main_df(df: pd.DataFrame) -> pd.DataFrame:
     """
     6컬럼 → 3컬럼: 조문번호 + '\\n' + 조문제목 합치기.
@@ -403,6 +422,7 @@ def export_multi(
             _add_title_row(ws, law_name, len(combined_df.columns))
             _style_sheet(ws, combined_df, center_data=True, header_row=2)
             _add_haedan_dropdown(ws, len(combined_df), start_row=3)
+            _set_print_layout(ws)
             if _is_admrul_df(combined_df):
                 ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
 
