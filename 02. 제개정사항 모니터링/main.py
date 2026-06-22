@@ -113,8 +113,19 @@ def _discover_laws(client: LawAPIClient, law_name: str) -> list[dict]:
 
     laws = parser.parse_law_search(search_xml)
     if not laws:
-        print(f"    '{law_name}' 검색 결과 없음")
-        return []
+        # 법령에서 못 찾으면 행정규칙(고시·훈령·예규)으로 폴백
+        try:
+            adm_xml = client.search_admrul(law_name)
+        except APIError as e:
+            print(f"    오류: {e}")
+            return []
+        rules = parser.parse_admrul_search(adm_xml)
+        if not rules:
+            print(f"    '{law_name}' 검색 결과 없음")
+            return []
+        rule = _pick_law(rules, law_name) or rules[0]
+        print(f"    행정규칙: {rule['name']}  시행일자: {rule['시행일자']}")
+        return [rule]
 
     # laws.json에 시행령/시행규칙을 직접 지정한 경우: 단독 처리
     if "시행령" in law_name or "시행규칙" in law_name:
@@ -137,12 +148,105 @@ def _discover_laws(client: LawAPIClient, law_name: str) -> list[dict]:
     return related
 
 
+def _diff_admrul(old_articles: list[dict], new_articles: list[dict],
+                 law_info: dict) -> list[dict]:
+    """이전·현재 행정규칙 조문 목록을 제N조 키로 텍스트 비교해 변경 조문 반환."""
+    개정일 = parser._fmt_date(law_info.get("공포일자", ""))
+    시행일 = parser._fmt_date(law_info.get("시행일자", ""))
+    old_map = {a["번호"]: a for a in old_articles}
+    new_map = {a["번호"]: a for a in new_articles}
+    nums = list(dict.fromkeys(
+        [a["번호"] for a in old_articles] + [a["번호"] for a in new_articles]
+    ))
+    changes: list[dict] = []
+    for num in nums:
+        o, n = old_map.get(num), new_map.get(num)
+        o_txt = o["내용"] if o else ""
+        n_txt = n["내용"] if n else ""
+        if parser._normalize(o_txt) == parser._normalize(n_txt):
+            continue
+        changes.append({
+            "조문번호": num,
+            "조문명":  (n or o).get("제목", ""),
+            "개정일":  개정일,
+            "시행일자": 시행일,
+            "구법내용": o_txt,
+            "신법내용": n_txt,
+        })
+    return changes
+
+
+def _check_admrul(client: LawAPIClient, law_info: dict, debug: bool = False) -> dict:
+    """
+    행정규칙 1개를 확인. 신구법비교 API가 없어 시행일자 + 본문 텍스트 비교로 변경 감지.
+    반환 스키마는 _check_law과 동일(reporter·amendments 호환).
+    """
+    law_name  = law_info["name"]
+    mst       = law_info["mst"]
+    new_date  = law_info["시행일자"]
+    safe_name = law_name.replace("/", "_").replace("\\", "_")
+
+    result: dict = {"law_name": law_name, "old_date": "", "new_date": new_date,
+                    "status": "오류", "articles": [], "article_count": "-"}
+
+    old_snap = snapshot.load(safe_name, DATA_DIR)
+    old_date = old_snap.get("시행일자", "") if old_snap else ""
+    result["old_date"] = old_date
+
+    if old_snap and old_date == new_date:
+        print(f"    [{law_name}] 변경 없음 (시행일자: {new_date})")
+        result["status"]        = "변경 없음"
+        result["article_count"] = old_snap.get("개정_조문_수", "-")
+        result["articles"]      = old_snap.get("조문비교", [])
+        return result
+
+    print(f"    [{law_name}] 행정규칙 본문 조회 중...")
+    try:
+        xml = client.get_admrul_articles(mst)
+    except APIError as e:
+        print(f"      오류: {e}")
+        return result
+
+    if debug:
+        debug_path = os.path.join(DATA_DIR, f"debug_admrul_{safe_name}.xml")
+        with open(debug_path, "w", encoding="utf-8") as f:
+            f.write(xml)
+
+    new_articles = parser.parse_admrul_articles(xml)
+    old_articles = old_snap.get("조문목록", []) if old_snap else []
+
+    # 최초 등록은 비교 대상이 없으므로 기준선만 저장 (변경 없음 처리)
+    changes = [] if old_snap is None else _diff_admrul(old_articles, new_articles, law_info)
+
+    snapshot.save({
+        "법령명":      law_name,
+        "공포일자":    law_info.get("공포일자", ""),
+        "시행일자":    new_date,
+        "MST":        mst,
+        "조회일":      datetime.now().strftime("%Y-%m-%d"),
+        "개정_조문_수": len(changes),
+        "조문비교":    changes,
+        "조문목록":    new_articles,
+        "is_admrul":  True,
+    }, DATA_DIR)
+
+    status = "신규 등록" if old_snap is None else ("개정됨" if changes else "변경 없음")
+    print(f"      {status} ({len(changes)}개 변경)")
+    result["status"]        = status
+    result["articles"]      = changes
+    result["article_count"] = len(changes)
+    return result
+
+
 def _check_law(client: LawAPIClient, law_info: dict, debug: bool = False) -> dict:
     """
     law_info: {"name": str, "mst": str, "공포일자": str}
     법령 1개를 확인하고 결과 dict 반환.
     반환: {"law_name", "old_date", "new_date", "status", "articles"}
     """
+    if law_info.get("is_admrul"):
+        return _check_admrul(client, law_info, debug)
+
     law_name  = law_info["name"]
     mst       = law_info["mst"]
     new_date  = law_info["시행일자"]

@@ -37,6 +37,7 @@ _COL_WIDTHS = {
     "위임규칙 조문제목": 28,
     "조문번호": 16,
     "조문제목": 32,
+    "조문내용": 70,
 }
 
 
@@ -124,6 +125,32 @@ def _build_combined_df(
         all_rows,
         columns=["No.", "법률 조문", "시행령 조문", "시행규칙 조문", "해당여부"],
     )
+
+
+def _build_admrul_df(articles: list[dict]) -> pd.DataFrame:
+    """
+    행정규칙 조문 → 단일 DataFrame.
+    3단 위임구조가 없으므로 B=조문제목, C=조문내용 으로 구성.
+    해당여부는 E열(5번째)에 유지해야 VBA가 동작하므로 D열(시행규칙 조문)은
+    빈 placeholder 로 두고 export 시 숨긴다.
+    """
+    rows = [
+        {"조문제목": f"{a['번호']}\n{a['제목']}" if a.get("제목") else a["번호"],
+         "조문내용": a.get("내용", ""),
+         "시행규칙 조문": "", "해당여부": ""}
+        for a in articles
+    ]
+    for i, row in enumerate(rows, start=1):
+        row["No."] = i
+    return pd.DataFrame(
+        rows,
+        columns=["No.", "조문제목", "조문내용", "시행규칙 조문", "해당여부"],
+    )
+
+
+def _is_admrul_df(df: pd.DataFrame) -> bool:
+    """행정규칙 시트 여부 판별 (조문제목 컬럼 보유)."""
+    return "조문제목" in df.columns
 
 
 def _add_haedan_dropdown(ws, nrows: int, col: str = "E") -> None:
@@ -367,6 +394,8 @@ def export_multi(
             ws = writer.sheets[sheet_name]
             _style_sheet(ws, combined_df, center_data=True)
             _add_haedan_dropdown(ws, len(combined_df))
+            if _is_admrul_df(combined_df):
+                ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
 
         # Sheet 1: 법규준수평가 — 생성 후 맨 앞으로 이동
         _create_junsu_sheet(writer.book)

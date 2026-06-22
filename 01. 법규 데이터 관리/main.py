@@ -76,6 +76,45 @@ def _get_articles(
         return []
 
 
+# ── 행정규칙 처리 ──────────────────────────────────────────────────────────────
+
+def _process_admrul(
+    client: LawAPIClient,
+    law_name: str,
+) -> tuple[str, object] | None:
+    """
+    행정규칙(고시·훈령·예규)을 처리해 (행정규칙명, admrul_df)를 반환.
+    검색되지 않으면 None.
+    """
+    print(f"  '{law_name}' 행정규칙으로 재검색 중...")
+    try:
+        search_xml = client.search_admrul(law_name)
+    except APIError as e:
+        print(f"  오류: {e}")
+        return None
+
+    rules = parser.parse_admrul_search(search_xml)
+    if not rules:
+        return None
+
+    rule = _find_queried_law(rules, law_name) or rules[0]
+    print(f"  행정규칙: {rule['name']}  (종류: {rule['종류']}, 일련번호: {rule['lst']})")
+
+    try:
+        articles_xml = client.get_admrul_articles(rule["lst"])
+    except APIError as e:
+        print(f"  오류: {e}")
+        return None
+
+    articles = parser.parse_admrul_articles(articles_xml)
+    print(f"  {len(articles)}개 조문 추출")
+    if not articles:
+        return None
+
+    combined_df = exporter._build_admrul_df(articles)
+    return (rule["name"], combined_df)
+
+
 # ── 단일 법령 처리 ─────────────────────────────────────────────────────────────
 
 def _process_one_law(
@@ -101,6 +140,10 @@ def _process_one_law(
 
     all_laws = parser.parse_thdcmp_search(search_xml)
     if not all_laws:
+        # 법령에서 못 찾으면 행정규칙(고시·훈령·예규)으로 폴백
+        admrul = _process_admrul(client, law_name)
+        if admrul is not None:
+            return admrul
         print(f"  '{law_name}' 법령을 찾을 수 없습니다.")
         return None
 

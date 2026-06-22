@@ -142,6 +142,61 @@ def parse_law_articles(xml_text: str) -> list[dict]:
     return articles
 
 
+# ── 행정규칙 파싱 ──────────────────────────────────────────────────────────────
+
+_ADMRUL_ART_RE  = re.compile(r'^(제\d+조(?:의\d+)?)\s*\(([^)]+)\)')
+
+
+def parse_admrul_search(xml_text: str) -> list[dict]:
+    """
+    행정규칙 검색 결과 파싱 (target=admrul). 현행 우선.
+    반환: [{"name","mst"(행정규칙일련번호),"공포일자"(발령일자),"시행일자",
+            "제개정구분명","연혁"}, ...]
+    """
+    root = _parse_xml(xml_text)
+    rules: list[dict] = []
+    for item in root.iter("admrul"):
+        name = _text(_find(item, "행정규칙명"))
+        mst  = _text(_find(item, "행정규칙일련번호"))
+        if not (name and mst):
+            continue
+        rules.append({
+            "name": name,
+            "mst": mst,
+            "공포일자": _text(_find(item, "발령일자")),
+            "시행일자": _text(_find(item, "시행일자")),
+            "제개정구분명": _text(_find(item, "제개정구분명")),
+            "연혁": _text(_find(item, "현행연혁구분")),
+            "is_admrul": True,
+        })
+    rules.sort(key=lambda r: 0 if r["연혁"] == "현행" else 1)
+    return rules
+
+
+def parse_admrul_articles(xml_text: str) -> list[dict]:
+    """
+    행정규칙 본문 파싱 (target=admrul service).
+    평면적 <조문내용> 텍스트 블록에서 '제N조(제목) 본문...'을 추출.
+    장·절 헤더("제1장 총칙")는 제외.
+    반환: [{"번호","제목","내용"}, ...]
+    """
+    root = _parse_xml(xml_text)
+    articles: list[dict] = []
+    for elem in root.iter("조문내용"):
+        text = (elem.text or "").strip()
+        if not text:
+            continue
+        m = _ADMRUL_ART_RE.match(text)
+        if not m:
+            continue
+        articles.append({
+            "번호": m.group(1),
+            "제목": m.group(2).strip(),
+            "내용": text,
+        })
+    return articles
+
+
 def _strip_p(text: str) -> str:
     """<P>...</P> 태그 제거 (텍스트는 유지)."""
     return _P_TAG_RE.sub("", text or "").strip()

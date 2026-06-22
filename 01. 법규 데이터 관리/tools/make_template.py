@@ -77,11 +77,16 @@ Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
     Dim isDupe As Boolean, headerRow As Long
     Dim k As Long, i As Long, j As Long, c As Integer
 
+    ' 행정규칙 시트(B열 헤더='조문제목')는 조문제목만 1번 시트 법률열에 반영
+    Dim isAdm As Boolean
+    isAdm = (Sh.Cells(1, 2).Value = "조문제목")
+
     Dim tgt As Range
     For Each tgt In relevant.Cells
         bVal   = Sh.Cells(tgt.Row, 2).Value
         cVal   = Sh.Cells(tgt.Row, 3).Value
         dVal   = Sh.Cells(tgt.Row, 4).Value
+        If isAdm Then cVal = "": dVal = ""
         key    = Sh.Name & "||" & bVal & "||" & cVal & "||" & dVal
         ordKey = CLng(shOrder) * 1000000 + CLng(tgt.Row)
 

@@ -82,14 +82,21 @@ def _read_ox_map(ws) -> tuple[dict, dict]:
     return ox_by_num, ox_by_title
 
 
+def _row_triple(row, is_admrul: bool) -> tuple[str, str, str]:
+    """새 DataFrame 행에서 키 산출용 (a, b, c) 추출.
+    행정규칙은 조문제목(B)만 키로 사용."""
+    if is_admrul:
+        return str(row.get("조문제목", "") or ""), "", ""
+    return row["법률 조문"], row["시행령 조문"], row["시행규칙 조문"]
+
+
 def _apply_ox(new_df: pd.DataFrame,
-              ox_by_num: dict, ox_by_title: dict) -> pd.DataFrame:
+              ox_by_num: dict, ox_by_title: dict,
+              is_admrul: bool = False) -> pd.DataFrame:
     """새 DataFrame 각 행에 기존 O/X 매핑."""
     result = new_df.copy()
     for idx, row in result.iterrows():
-        col, num, title = _primary_key_col(
-            row["법률 조문"], row["시행령 조문"], row["시행규칙 조문"]
-        )
+        col, num, title = _primary_key_col(*_row_triple(row, is_admrul))
         ox = (ox_by_num.get((col, num)) or
               ox_by_title.get((col, title)) or "")
         result.at[idx, "해당여부"] = ox
@@ -114,7 +121,8 @@ def _read_old_articles(ws) -> dict:
 
 
 def _detect_changes(old_articles: dict,
-                    new_df: pd.DataFrame) -> tuple[list, list]:
+                    new_df: pd.DataFrame,
+                    is_admrul: bool = False) -> tuple[list, list]:
     """
     old_articles: {(col, num): set_of_titles}
     반환: (change_types, deleted_list)
@@ -131,9 +139,7 @@ def _detect_changes(old_articles: dict,
     change_types: list = []
 
     for _, row in new_df.iterrows():
-        col, num, title = _primary_key_col(
-            row["법률 조문"], row["시행령 조문"], row["시행규칙 조문"]
-        )
+        col, num, title = _primary_key_col(*_row_triple(row, is_admrul))
         if (col, num) in old_articles:
             matched_old.add((col, num))
             old_titles = old_articles[(col, num)]
@@ -157,16 +163,22 @@ def _detect_changes(old_articles: dict,
 # ─── 시트 재작성 ─────────────────────────────────────────────────────────────
 
 def _rewrite_sheet(ws, new_df: pd.DataFrame,
-                   change_types: list) -> None:
+                   change_types: list, is_admrul: bool = False) -> None:
     """기존 데이터 행 삭제 후 새 내용 기록. 신설·변경 행은 노란색."""
     if ws.max_row > 1:
         ws.delete_rows(2, ws.max_row - 1)
 
     for _, row in new_df.iterrows():
-        ws.append([
-            row["No."], row["법률 조문"], row["시행령 조문"],
-            row["시행규칙 조문"], row["해당여부"],
-        ])
+        if is_admrul:
+            ws.append([
+                row["No."], row.get("조문제목", ""), row.get("조문내용", ""),
+                "", row["해당여부"],
+            ])
+        else:
+            ws.append([
+                row["No."], row["법률 조문"], row["시행령 조문"],
+                row["시행규칙 조문"], row["해당여부"],
+            ])
 
     _style_sheet(ws, new_df)
 
@@ -176,6 +188,8 @@ def _rewrite_sheet(ws, new_df: pd.DataFrame,
                 ws.cell(row=row_idx, column=col_idx).fill = _YELLOW_FILL
 
     _add_haedan_dropdown(ws, len(new_df))
+    if is_admrul:
+        ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
 
 
 # ─── 변경사항 시트 ────────────────────────────────────────────────────────────
@@ -259,22 +273,21 @@ def update_file(
             continue
 
         _, new_df = result
-        new_df = _apply_ox(new_df, ox_by_num, ox_by_title)
+        is_admrul = "조문제목" in new_df.columns
+        new_df = _apply_ox(new_df, ox_by_num, ox_by_title, is_admrul)
 
-        change_types, deleted = _detect_changes(old_articles, new_df)
+        change_types, deleted = _detect_changes(old_articles, new_df, is_admrul)
 
         cnt = {t: change_types.count(t) for t in ("신설", "변경", "동일")}
         print(f"    완료 ({len(new_df)}행) — 신설 {cnt['신설']}, 변경 {cnt['변경']}, 삭제 {len(deleted)}")
 
-        _rewrite_sheet(sheet, new_df, change_types)
+        _rewrite_sheet(sheet, new_df, change_types, is_admrul)
         updated += 1
 
         # 이력 수집
         for i, (_, row) in enumerate(new_df.iterrows()):
             if change_types[i] in ("신설", "변경"):
-                col, num, title = _primary_key_col(
-                    row["법률 조문"], row["시행령 조문"], row["시행규칙 조문"]
-                )
+                col, num, title = _primary_key_col(*_row_triple(row, is_admrul))
                 all_changes.append((law_name,
                     {"조문번호": num, "조문명": title, "변경유형": change_types[i]}))
         for d in deleted:

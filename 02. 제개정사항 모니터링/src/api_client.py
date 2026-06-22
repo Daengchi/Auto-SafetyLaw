@@ -63,3 +63,11 @@ class LawAPIClient:
     def get_old_new(self, mst: str) -> str:
         """신구법비교 조회 (target=oldAndNew)."""
         return self._get(BASE_SERVICE_URL, {"target": "oldAndNew", "MST": mst})
+
+    def search_admrul(self, query: str) -> str:
+        """행정규칙(고시·훈령·예규 등) 검색 (target=admrul)."""
+        return self._get(BASE_SEARCH_URL, {"target": "admrul", "query": query, "display": 20, "page": 1})
+
+    def get_admrul_articles(self, mst: str) -> str:
+        """행정규칙 전체 조문 조회 (target=admrul). 파라미터명 ID = 행정규칙일련번호."""
+        return self._get(BASE_SERVICE_URL, {"target": "admrul", "ID": mst})
