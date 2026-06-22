@@ -15,9 +15,17 @@ from openpyxl import load_workbook
 from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 
 from src.exporter import (
-    _style_sheet, _add_haedan_dropdown,
+    _style_sheet, _add_haedan_dropdown, _add_title_row,
     _HEADER_FILL, _HEADER_FONT, _HEADER_ALIGN, _BORDER,
 )
+
+
+def _header_row(ws) -> int:
+    """헤더('No.')가 위치한 행 탐색. 제목 행 유무(구·신 레이아웃) 모두 대응."""
+    for r in (1, 2, 3):
+        if str(ws.cell(r, 1).value).strip() == "No.":
+            return r
+    return 1
 
 _YELLOW_FILL   = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
 _HISTORY_SHEET = "변경사항"
@@ -58,7 +66,7 @@ def _primary_key_col(a, b, c) -> tuple[str, str, str]:
 
 # ─── O/X 보존 ────────────────────────────────────────────────────────────────
 
-def _read_ox_map(ws) -> tuple[dict, dict]:
+def _read_ox_map(ws, hdr: int = 1) -> tuple[dict, dict]:
     """
     열+번호 조합 키로 O/X 추출.
     반환: (ox_by_num={(col,num):ox}, ox_by_title={(col,title):ox})
@@ -66,7 +74,7 @@ def _read_ox_map(ws) -> tuple[dict, dict]:
     ox_by_num:   dict[tuple, str] = {}
     ox_by_title: dict[tuple, str] = {}
 
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    for row in ws.iter_rows(min_row=hdr + 1, values_only=True):
         if len(row) < 5:
             continue
         a, b, c, d = row[1], row[2], row[3], row[4]
@@ -105,11 +113,11 @@ def _apply_ox(new_df: pd.DataFrame,
 
 # ─── 변경 감지 ────────────────────────────────────────────────────────────────
 
-def _read_old_articles(ws) -> dict:
+def _read_old_articles(ws, hdr: int = 1) -> dict:
     """기존 시트에서 {(col, num): set_of_titles} 반환.
     동일 조문번호가 여러 행에 걸쳐 있는 경우(의N 파싱 오류 호환)를 위해 set 사용."""
     result: dict[tuple, set] = {}
-    for row in ws.iter_rows(min_row=2, values_only=True):
+    for row in ws.iter_rows(min_row=hdr + 1, values_only=True):
         if len(row) < 4:
             continue
         col, num, title = _primary_key_col(
@@ -162,13 +170,21 @@ def _detect_changes(old_articles: dict,
 
 # ─── 시트 재작성 ─────────────────────────────────────────────────────────────
 
-def _rewrite_sheet(ws, new_df: pd.DataFrame,
-                   change_types: list, is_admrul: bool = False) -> None:
-    """기존 데이터 행 삭제 후 새 내용 기록. 신설·변경 행은 노란색."""
-    if ws.max_row > 1:
-        ws.delete_rows(2, ws.max_row - 1)
+def _rewrite_sheet(ws, new_df: pd.DataFrame, change_types: list,
+                   law_name: str, is_admrul: bool = False) -> None:
+    """기존 내용 전체 삭제 후 제목행+헤더+데이터 재작성. 신설·변경 행은 노란색.
+    레이아웃: 1행=제목 / 2행=헤더 / 3행~=데이터 (구 레이아웃 파일도 신 레이아웃으로 정규화)."""
+    for mc in list(ws.merged_cells.ranges):
+        ws.unmerge_cells(str(mc))
+    if ws.max_row >= 1:
+        ws.delete_rows(1, ws.max_row)
 
-    for _, row in new_df.iterrows():
+    ncols = len(new_df.columns)
+    _add_title_row(ws, law_name, ncols)                    # 1행: 제목
+    for col_idx, col_name in enumerate(new_df.columns, start=1):
+        ws.cell(row=2, column=col_idx, value=col_name)     # 2행: 헤더
+
+    for _, row in new_df.iterrows():                        # 3행~: 데이터
         if is_admrul:
             ws.append([
                 row["No."], row.get("조문제목", ""), row.get("조문내용", ""),
@@ -180,14 +196,14 @@ def _rewrite_sheet(ws, new_df: pd.DataFrame,
                 row["시행규칙 조문"], row["해당여부"],
             ])
 
-    _style_sheet(ws, new_df)
+    _style_sheet(ws, new_df, header_row=2)
 
-    for row_idx, ct in enumerate(change_types, start=2):
+    for row_idx, ct in enumerate(change_types, start=3):
         if ct in ("신설", "변경"):
             for col_idx in range(1, 5):
                 ws.cell(row=row_idx, column=col_idx).fill = _YELLOW_FILL
 
-    _add_haedan_dropdown(ws, len(new_df))
+    _add_haedan_dropdown(ws, len(new_df), start_row=3)
     if is_admrul:
         ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
 
@@ -261,8 +277,9 @@ def update_file(
 
         print(f"\n  [{law_name}] 처리 중...")
 
-        ox_by_num, ox_by_title = _read_ox_map(sheet)
-        old_articles           = _read_old_articles(sheet)
+        hdr = _header_row(sheet)
+        ox_by_num, ox_by_title = _read_ox_map(sheet, hdr)
+        old_articles           = _read_old_articles(sheet, hdr)
         preserved = sum(1 for v in ox_by_num.values() if v == "O")
         print(f"    기존 O 표시 조문: {preserved}개 보존 예정")
 
@@ -281,7 +298,7 @@ def update_file(
         cnt = {t: change_types.count(t) for t in ("신설", "변경", "동일")}
         print(f"    완료 ({len(new_df)}행) — 신설 {cnt['신설']}, 변경 {cnt['변경']}, 삭제 {len(deleted)}")
 
-        _rewrite_sheet(sheet, new_df, change_types, is_admrul)
+        _rewrite_sheet(sheet, new_df, change_types, law_name, is_admrul)
         updated += 1
 
         # 이력 수집

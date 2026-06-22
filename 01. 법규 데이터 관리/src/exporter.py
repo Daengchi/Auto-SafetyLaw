@@ -26,9 +26,9 @@ _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 # 컬럼별 기본 너비 (글자 수 기준)
 _COL_WIDTHS = {
     "No.":             6,
-    "법률 조문":       35,
-    "시행령 조문":     35,
-    "시행규칙 조문":   35,
+    "법률 조문":       45,
+    "시행령 조문":     45,
+    "시행규칙 조문":   45,
     "해당여부":        12,
     "법률 조문번호":   16,
     "법률 조문제목":   28,
@@ -41,30 +41,26 @@ _COL_WIDTHS = {
 }
 
 
-def _style_sheet(ws, df: pd.DataFrame, center_data: bool = False) -> None:
-    """워크시트에 헤더 스타일, 행 교대 색상, 테두리, 열 너비 적용."""
+def _style_sheet(ws, df: pd.DataFrame, center_data: bool = False,
+                 header_row: int = 1) -> None:
+    """워크시트에 헤더 스타일, 행 교대 색상, 테두리, 열 너비 적용.
+    header_row: 헤더가 위치한 행 번호(데이터는 header_row+1 부터)."""
+    data_start = header_row + 1
     for col_idx, col_name in enumerate(df.columns, start=1):
         letter = get_column_letter(col_idx)
         ws.column_dimensions[letter].width = _COL_WIDTHS.get(col_name, 22)
 
         # 헤더 셀
-        cell = ws.cell(row=1, column=col_idx)
+        cell = ws.cell(row=header_row, column=col_idx)
         cell.fill      = _HEADER_FILL
         cell.font      = _HEADER_FONT
         cell.alignment = _HEADER_ALIGN
         cell.border    = _BORDER
 
-    # 데이터 행
+    # 데이터 행 — 행높이는 고정하지 않고 wrap_text 유지 → Excel이 열 때 자동맞춤
     h_align = "center" if center_data else "left"
-    for row_idx in range(2, ws.max_row + 1):
+    for row_idx in range(data_start, ws.max_row + 1):
         row_fill = _EVEN_FILL if row_idx % 2 == 0 else _ODD_FILL
-        if center_data:
-            max_lines = 1
-            for ci in range(1, len(df.columns) + 1):
-                val = ws.cell(row=row_idx, column=ci).value
-                if val:
-                    max_lines = max(max_lines, str(val).count('\n') + 1)
-            ws.row_dimensions[row_idx].height = max(20, max_lines * 16)
         for col_idx in range(1, len(df.columns) + 1):
             cell = ws.cell(row=row_idx, column=col_idx)
             cell.fill      = row_fill
@@ -72,8 +68,19 @@ def _style_sheet(ws, df: pd.DataFrame, center_data: bool = False) -> None:
             cell.alignment = Alignment(horizontal=h_align, vertical="center", wrap_text=True)
             cell.border    = _BORDER
 
-    ws.freeze_panes = "A2"
-    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = f"A{data_start}"
+    ws.row_dimensions[header_row].height = 30
+
+
+def _add_title_row(ws, law_name: str, ncols: int) -> None:
+    """상세 시트 최상단(1행)에 '■ [법령명]' 제목 행 추가 (크기 15, 볼드)."""
+    last = get_column_letter(ncols)
+    ws.merge_cells(f"A1:{last}1")
+    cell = ws.cell(row=1, column=1)
+    cell.value     = f"■ {law_name}"
+    cell.font      = Font(size=15, bold=True)
+    cell.alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 26
 
 
 def _merge_main_df(df: pd.DataFrame) -> pd.DataFrame:
@@ -153,7 +160,7 @@ def _is_admrul_df(df: pd.DataFrame) -> bool:
     return "조문제목" in df.columns
 
 
-def _add_haedan_dropdown(ws, nrows: int, col: str = "E") -> None:
+def _add_haedan_dropdown(ws, nrows: int, col: str = "E", start_row: int = 2) -> None:
     """지정 열(해당여부)에 O/X 드롭다운 유효성 검사 추가."""
     dv = DataValidation(
         type="list",
@@ -163,7 +170,7 @@ def _add_haedan_dropdown(ws, nrows: int, col: str = "E") -> None:
         error="O 또는 X만 입력할 수 있습니다.",
         errorTitle="입력 오류",
     )
-    dv.sqref = f"{col}2:{col}{nrows + 1}"
+    dv.sqref = f"{col}{start_row}:{col}{start_row + nrows - 1}"
     ws.add_data_validation(dv)
 
 
@@ -388,12 +395,14 @@ def export_multi(
 
     with pd.ExcelWriter(xlsx_tmp, engine="openpyxl") as writer:
         # Sheet 2+: 법령별 데이터 (먼저 생성)
+        # 1행: '■ [법령명]' 제목 / 2행: 헤더 / 3행~: 데이터
         for idx, (law_name, combined_df) in enumerate(laws, start=2):
             sheet_name = f"{idx}. {law_name}"[:31]  # Excel 시트명 31자 제한
-            combined_df.to_excel(writer, sheet_name=sheet_name, index=False)
+            combined_df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
             ws = writer.sheets[sheet_name]
-            _style_sheet(ws, combined_df, center_data=True)
-            _add_haedan_dropdown(ws, len(combined_df))
+            _add_title_row(ws, law_name, len(combined_df.columns))
+            _style_sheet(ws, combined_df, center_data=True, header_row=2)
+            _add_haedan_dropdown(ws, len(combined_df), start_row=3)
             if _is_admrul_df(combined_df):
                 ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
 

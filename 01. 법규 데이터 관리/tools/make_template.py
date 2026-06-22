@@ -77,9 +77,10 @@ Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
     Dim isDupe As Boolean, headerRow As Long
     Dim k As Long, i As Long, j As Long, c As Integer
 
-    ' 행정규칙 시트(B열 헤더='조문제목')는 조문제목만 1번 시트 법률열에 반영
+    ' 행정규칙 시트(헤더행 B='조문제목')는 조문제목만 1번 시트 법률열에 반영
+    ' 헤더는 2행(1행은 '■ 법령명' 제목 행)
     Dim isAdm As Boolean
-    isAdm = (Sh.Cells(1, 2).Value = "조문제목")
+    isAdm = (Sh.Cells(2, 2).Value = "조문제목")
 
     Dim tgt As Range
     For Each tgt In relevant.Cells
