@@ -39,7 +39,10 @@ Private Const SEP_FS    As Integer = {_SEP_FSIZE}
 
 Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
     If Not Application.EnableEvents Then Exit Sub
-    If Sh.Name = EVAL_SH Then Exit Sub
+    If Sh.Name = EVAL_SH Then
+        AutoFitEvalRows Target          ' 직접 입력 칸 행높이 자동맞춤
+        Exit Sub
+    End If
 
     Dim relevant As Range, cell As Range
     For Each cell In Target.Cells
@@ -271,18 +274,40 @@ Private Const SEP_H     As Integer = {_SEP_HEIGHT}
 Private Const SEP_FS    As Integer = {_SEP_FSIZE}
 Private Const EVAL_SH   As String  = "1. 법규준수평가"
 
+Public Sub AutoFitRow(ws As Worksheet, rowIdx As Long)
+    ' 셀 내용(자동 줄바꿈 포함)에 맞춰 행높이 자동맞춤.
+    ' 숨김 키열(J=10, K=11)은 폭이 0에 가까워 긴 키가 여러 줄로 접히며 행높이를
+    ' 부풀리므로, 해당 셀의 줄바꿈만 끈다(키 값·기능에는 영향 없음).
+    ws.Cells(rowIdx, KEY_COL).WrapText = False
+    ws.Cells(rowIdx, 11).WrapText      = False
+    ws.Rows(rowIdx).AutoFit
+    If ws.Rows(rowIdx).RowHeight < 20 Then ws.Rows(rowIdx).RowHeight = 20
+End Sub
+
 Public Sub SetRowHeightByContent(ws As Worksheet, rowIdx As Long)
-    ' B(2), C(3), D(4) 열 줄바꿈 수 기준으로 행높이 설정 — H/I 열 영향 없음
-    Dim maxLines As Long: maxLines = 1
-    Dim col As Integer, cellLines As Long, v As String
-    For col = 2 To 4
-        v = CStr(ws.Cells(rowIdx, col).Value)
-        If Len(v) > 0 Then
-            cellLines = UBound(Split(v, Chr(10))) + 1
-            If cellLines > maxLines Then maxLines = cellLines
+    AutoFitRow ws, rowIdx
+End Sub
+
+Public Sub AutoFitEvalRows(ByVal Target As Range)
+    ' 사용자가 1번 시트 데이터 칸에 직접 입력할 때 해당 행 높이 자동맞춤.
+    ' separator(병합) 행과 머리글(1~3행)은 제외.
+    Dim ws As Worksheet: Set ws = Target.Worksheet
+    Application.EnableEvents   = False
+    Application.ScreenUpdating = False
+    On Error Resume Next
+    Dim r As Range, rowIdx As Long, seen As String
+    seen = "|"
+    For Each r In Target.Cells
+        rowIdx = r.Row
+        If rowIdx >= DAT_ROW And InStr(seen, "|" & rowIdx & "|") = 0 Then
+            seen = seen & rowIdx & "|"
+            If Not ws.Cells(rowIdx, 1).MergeCells Then
+                AutoFitRow ws, rowIdx
+            End If
         End If
-    Next col
-    ws.Rows(rowIdx).RowHeight = Application.Max(20, maxLines * 16)
+    Next r
+    Application.ScreenUpdating = True
+    Application.EnableEvents   = True
 End Sub
 
 Public Sub RenumberSection(ws As Worksheet, headerRow As Long)
