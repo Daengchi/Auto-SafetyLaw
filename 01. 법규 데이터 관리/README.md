@@ -9,7 +9,7 @@
 - **Python 3.10 이상**
 - **Microsoft Excel** (xlsm 파일 실행 및 VBA 매크로 사용)
 - **국가법령정보센터 Open API 인증키**
-  - 발급: [https://www.law.go.kr/LSW/openApi/openApiInfo.do](https://www.law.go.kr/LSW/openApi/openApiInfo.do)
+  - 발급: [https://open.law.go.kr/LSO/main.do](https://open.law.go.kr/LSO/main.do)
 
 ---
 

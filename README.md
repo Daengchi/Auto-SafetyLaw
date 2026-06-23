@@ -87,7 +87,7 @@ GitHub 최신 코드 pull
 LAW_API_KEY=발급받은_인증키
 ```
 
-> API 키(OC) 발급: https://www.law.go.kr/LSW/openApi/openApiInfo.do  
+> API 키(OC) 발급: https://open.law.go.kr/LSO/main.do  
 > 발급·사용 시 **호출 PC의 공인(외부) IP 주소**를 법령센터에 등록해야 합니다.
 > - **확인 방법**: 해당 PC 브라우저에서 네이버에 `내 아이피 주소 확인` 검색 → 표시되는 IP 주소
 > - ⚠ `ipconfig`로 나오는 내부 IP(`192.168.x.x`, `10.x.x.x` 등)는 **등록하면 안 됩니다.** 외부에서 보이지 않으므로 검증이 실패합니다. 반드시 위 방법으로 확인한 **공인 IP**를 등록하세요.
