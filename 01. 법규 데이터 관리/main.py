@@ -291,6 +291,8 @@ def main() -> None:
                             help="원본 XML 저장 (파싱 문제 진단용)")
     arg_parser.add_argument("--update", action="store_true",
                             help="기존 법규준수평가표 파일 업데이트 (파일 선택창)")
+    arg_parser.add_argument("--file", "-f", metavar="경로", default=None,
+                            help="업데이트할 파일 경로 (--update 시, 미지정이면 파일 선택창)")
     args = arg_parser.parse_args()
 
     api_key = os.getenv("LAW_API_KEY")
@@ -303,17 +305,21 @@ def main() -> None:
 
     # ── 업데이트 모드 ───────────────────────────────────────────────────────────
     if args.update:
-        import tkinter as tk
-        from tkinter import filedialog
         from src.updater import update_file
 
-        root = tk.Tk()
-        root.withdraw()
-        xlsx_path = filedialog.askopenfilename(
-            title="업데이트할 법규준수평가표를 선택하세요",
-            filetypes=[("Excel 파일", "*.xlsm *.xlsx"), ("모든 파일", "*.*")],
-        )
-        root.destroy()
+        xlsx_path = args.file
+        if not xlsx_path:
+            # 경로 미지정 시에만 tkinter 파일 선택창 사용 (전체 Python 한정)
+            import tkinter as tk
+            from tkinter import filedialog
+
+            root = tk.Tk()
+            root.withdraw()
+            xlsx_path = filedialog.askopenfilename(
+                title="업데이트할 법규준수평가표를 선택하세요",
+                filetypes=[("Excel 파일", "*.xlsm *.xlsx"), ("모든 파일", "*.*")],
+            )
+            root.destroy()
 
         if not xlsx_path:
             print("파일을 선택하지 않았습니다.")
