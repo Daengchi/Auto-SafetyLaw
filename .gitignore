@@ -24,3 +24,6 @@ git-portable/
 # PM 전용 도구 (사업장 배포 불필요)
 배포패키지_준비.ps1
 *.zip
+
+# VS Code 워크스페이스 파일
+*.code-workspace
