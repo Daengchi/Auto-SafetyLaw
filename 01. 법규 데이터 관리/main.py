@@ -11,6 +11,7 @@
 import argparse
 import json
 import os
+import re
 import sys
 from datetime import datetime
 
@@ -74,6 +75,25 @@ def _get_articles(
     except APIError as e:
         print(f"  ⚠  {label} 조회 실패: {e}")
         return []
+
+
+_ART_HEAD_RE = re.compile(r'^\s*(제\d+조(?:의\d+)?)')
+
+
+def _content_lookup(articles: list[dict]) -> dict:
+    """전체 조문 리스트 → {to_raw(조문번호): 조문내용}.
+    target=law 응답은 조문번호에 가지(의N)가 없어 제1조~제1조의6이 모두 '1'로
+    합쳐진다. 조문내용 첫머리의 '제N조의M' 표기에서 정확한 번호를 복원해
+    3단비교표 키(제N조의M)와 맞춘다."""
+    out: dict[str, str] = {}
+    for a in articles:
+        body = a.get("내용", "")
+        m    = _ART_HEAD_RE.match(body)
+        num  = m.group(1) if m else a.get("번호", "")
+        key  = parser.to_raw(num)
+        if key and key not in out:
+            out[key] = body
+    return out
 
 
 # ── 행정규칙 처리 ──────────────────────────────────────────────────────────────
@@ -182,16 +202,18 @@ def _process_one_law(
             except APIError as e:
                 print(f"  오류: {e}")
                 return None
-            articles = parser.parse_law_articles(articles_xml)
+            articles = parser.parse_law_articles(articles_xml, include_content=True)
             print(f"  {len(articles)}개 조문 추출")
 
             import pandas as pd
             combined_df = pd.DataFrame(
                 [{"No.": i + 1, "법률 조문": "", "시행령 조문": "",
                   "시행규칙 조문": f"{a['번호']}\n{a['제목']}" if a['제목'] else a['번호'],
-                  "해당여부": ""}
+                  "해당여부": "",
+                  "하위조문내용": exporter._summarize(a.get("제목", ""), a.get("내용", "")),
+                  "내용해시": "|".join(["", "", exporter._content_hash(a.get("내용", ""))])}
                  for i, a in enumerate(articles)],
-                columns=["No.", "법률 조문", "시행령 조문", "시행규칙 조문", "해당여부"],
+                columns=["No.", "법률 조문", "시행령 조문", "시행규칙 조문", "해당여부", "하위조문내용", "내용해시"],
             )
             return (queried_law["name"], combined_df)
 
@@ -246,22 +268,30 @@ def _process_one_law(
 
     print(f"  3단비교표: {len(main_df)}행")
 
-    # ── Step 3: 갭 분석용 시행령·시행규칙 전체 조문 조회 ─────────────────────
-    print(f"\n  [3/3] 갭 분석용 조문 조회 중...")
+    # ── Step 3: 갭 분석 + 조문내용 조회 (법률·시행령·시행규칙 전체 조문) ───────
+    #   조문내용은 「법규준수평가」 주요 내용 자동 채움에 사용 (최하위 tier 기준)
+    print(f"\n  [3/3] 갭 분석·조문내용 조회 중...")
     missing_enf_df = None
     missing_rul_df = None
+    enf_content: dict[str, str] = {}
+    rul_content: dict[str, str] = {}
+
+    law_arts    = _get_articles(client, law_mst, "법률", debug, include_content=True)
+    law_content = _content_lookup(law_arts)
 
     if enf_mst:
-        enf_arts = _get_articles(client, enf_mst, "시행령", debug)
+        enf_arts = _get_articles(client, enf_mst, "시행령", debug, include_content=True)
         if enf_arts:
+            enf_content = _content_lookup(enf_arts)
             missing_enf_df = processor.find_missing_articles(enf_arts, mapped_enf_nums)
             print(f"  누락된 시행령: {len(missing_enf_df)}개")
     else:
         print("  시행령 없음 - 갭 분석 건너뜀")
 
     if rul_mst:
-        rul_arts = _get_articles(client, rul_mst, "시행규칙", debug)
+        rul_arts = _get_articles(client, rul_mst, "시행규칙", debug, include_content=True)
         if rul_arts:
+            rul_content = _content_lookup(rul_arts)
             missing_rul_df = processor.find_missing_articles(rul_arts, mapped_rul_nums)
             print(f"  누락된 시행규칙: {len(missing_rul_df)}개")
     else:
@@ -269,7 +299,9 @@ def _process_one_law(
 
     enf_df  = missing_enf_df if missing_enf_df is not None else empty_gap
     rule_df = missing_rul_df if missing_rul_df is not None else empty_gap
-    combined_df = exporter._build_combined_df(main_df, enf_df, rule_df)
+    combined_df = exporter._build_combined_df(
+        main_df, enf_df, rule_df, law_content, enf_content, rul_content
+    )
     return (law_name, combined_df)
 
 

@@ -3,6 +3,7 @@ Excel 출력 모듈.
 Sheet 1: 3단비교표 / Sheet 2: 준수여부 / Sheet 3: 누락된 시행령 / Sheet 4: 누락된 시행규칙
 """
 import os
+import hashlib
 import zipfile
 from typing import Optional
 import pandas as pd
@@ -10,6 +11,8 @@ from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 from openpyxl.worksheet.properties import PageSetupProperties
+
+from src.parser import to_raw
 
 # 헤더 스타일
 _HEADER_FILL = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
@@ -38,7 +41,30 @@ _COL_WIDTHS = {
     "조문번호": 16,
     "조문제목": 32,
     "조문내용": 70,
+    "하위조문내용": 70,
+    "내용해시": 20,
 }
+
+# 「법규준수평가」 주요 내용에 채울 조문내용 요약 길이(자)
+_CONTENT_LIMIT = 500
+
+
+def _summarize(title: str, body: str, limit: int = _CONTENT_LIMIT) -> str:
+    """조문 제목 + 조문내용 앞부분 요약. 본문이 limit자 초과 시 '…' 로 절단."""
+    body  = (body or "").strip()
+    title = (title or "").strip()
+    if len(body) > limit:
+        body = body[:limit] + "…"
+    if title and body:
+        return f"{title}\n{body}"
+    return title or body
+
+
+def _content_hash(body: str) -> str:
+    """조문 본문 지문. 업데이트 시 번호·제목이 같아도 내용 변경을 감지하기 위한 키.
+    공백을 정규화해 서식 차이로 인한 오탐을 줄인다. 빈 본문이면 빈 문자열."""
+    norm = " ".join((body or "").split())
+    return hashlib.sha1(norm.encode("utf-8")).hexdigest()[:16] if norm else ""
 
 
 def _style_sheet(ws, df: pd.DataFrame, center_data: bool = False,
@@ -123,25 +149,73 @@ def _build_combined_df(
     main_df: pd.DataFrame,
     enf_df: pd.DataFrame,
     rule_df: pd.DataFrame,
+    law_content: Optional[dict] = None,
+    enf_content: Optional[dict] = None,
+    rul_content: Optional[dict] = None,
 ) -> pd.DataFrame:
-    """3단법령 + 단독 시행령(B열) + 단독 시행규칙(C열) → 단일 DataFrame."""
+    """3단법령 + 단독 시행령(B열) + 단독 시행규칙(C열) → 단일 DataFrame.
+    F열(하위조문내용): 각 행 최하위 조문(시행규칙>시행령>법)의 제목+내용 요약.
+    *_content: {to_raw(조문번호): 조문내용} 룩업 (없으면 빈 값)."""
+    law_content = law_content or {}
+    enf_content = enf_content or {}
+    rul_content = rul_content or {}
+
     def _art_cell(row) -> str:
         num   = str(row.get("조문번호", "") or "")
         title = str(row.get("조문제목", "") or "")
         return f"{num}\n{title}" if title else num
 
-    merged = _merge_main_df(main_df)
+    def _lowest_content(orig) -> str:
+        """3단 원본 행에서 최하위 tier(시행규칙>시행령>법)의 요약 내용."""
+        if str(orig.get("시행규칙 조문번호", "") or ""):
+            return _summarize(orig["시행규칙 조문제목"], rul_content.get(to_raw(orig["시행규칙 조문번호"]), ""))
+        if str(orig.get("시행령 조문번호", "") or ""):
+            return _summarize(orig["시행령 조문제목"], enf_content.get(to_raw(orig["시행령 조문번호"]), ""))
+        if str(orig.get("법률 조문번호", "") or ""):
+            return _summarize(orig["법률 조문제목"], law_content.get(to_raw(orig["법률 조문번호"]), ""))
+        return ""
+
+    def _orphan_content(row, content_map) -> str:
+        num   = str(row.get("조문번호", "") or "")
+        title = str(row.get("조문제목", "") or "")
+        return _summarize(title, content_map.get(to_raw(num), ""))
+
+    def _row_hashes(orig) -> str:
+        """행의 법|시행령|시행규칙 본문 해시 (내용변경 감지용)."""
+        segs = []
+        for numcol, cmap in (("법률 조문번호", law_content),
+                             ("시행령 조문번호", enf_content),
+                             ("시행규칙 조문번호", rul_content)):
+            num = str(orig.get(numcol, "") or "")
+            segs.append(_content_hash(cmap.get(to_raw(num), "")) if num else "")
+        return "|".join(segs)
+
+    def _orphan_hashes(row, content_map, pos) -> str:
+        num  = str(row.get("조문번호", "") or "")
+        segs = ["", "", ""]
+        if num:
+            segs[pos] = _content_hash(content_map.get(to_raw(num), ""))
+        return "|".join(segs)
+
+    merged    = _merge_main_df(main_df)
+    orig_rows = list(main_df.iterrows())
     main_rows = [
-        {"법률 조문": r["법률 조문"], "시행령 조문": r["시행령 조문"],
-         "시행규칙 조문": r["시행규칙 조문"], "해당여부": ""}
-        for _, r in merged.iterrows()
+        {"법률 조문": m["법률 조문"], "시행령 조문": m["시행령 조문"],
+         "시행규칙 조문": m["시행규칙 조문"], "해당여부": "",
+         "하위조문내용": _lowest_content(orig_rows[i][1]),
+         "내용해시": _row_hashes(orig_rows[i][1])}
+        for i, (_, m) in enumerate(merged.iterrows())
     ]
     enf_rows = [
-        {"법률 조문": "", "시행령 조문": _art_cell(r), "시행규칙 조문": "", "해당여부": ""}
+        {"법률 조문": "", "시행령 조문": _art_cell(r), "시행규칙 조문": "", "해당여부": "",
+         "하위조문내용": _orphan_content(r, enf_content),
+         "내용해시": _orphan_hashes(r, enf_content, 1)}
         for _, r in enf_df.iterrows()
     ]
     rul_rows = [
-        {"법률 조문": "", "시행령 조문": "", "시행규칙 조문": _art_cell(r), "해당여부": ""}
+        {"법률 조문": "", "시행령 조문": "", "시행규칙 조문": _art_cell(r), "해당여부": "",
+         "하위조문내용": _orphan_content(r, rul_content),
+         "내용해시": _orphan_hashes(r, rul_content, 2)}
         for _, r in rule_df.iterrows()
     ]
     all_rows = main_rows + enf_rows + rul_rows
@@ -149,7 +223,7 @@ def _build_combined_df(
         row["No."] = i
     return pd.DataFrame(
         all_rows,
-        columns=["No.", "법률 조문", "시행령 조문", "시행규칙 조문", "해당여부"],
+        columns=["No.", "법률 조문", "시행령 조문", "시행규칙 조문", "해당여부", "하위조문내용", "내용해시"],
     )
 
 
@@ -163,14 +237,16 @@ def _build_admrul_df(articles: list[dict]) -> pd.DataFrame:
     rows = [
         {"조문제목": f"{a['번호']}\n{a['제목']}" if a.get("제목") else a["번호"],
          "조문내용": a.get("내용", ""),
-         "시행규칙 조문": "", "해당여부": ""}
+         "시행규칙 조문": "", "해당여부": "",
+         "하위조문내용": _summarize(a.get("제목", ""), a.get("내용", "")),
+         "내용해시": _content_hash(a.get("내용", ""))}
         for a in articles
     ]
     for i, row in enumerate(rows, start=1):
         row["No."] = i
     return pd.DataFrame(
         rows,
-        columns=["No.", "조문제목", "조문내용", "시행규칙 조문", "해당여부"],
+        columns=["No.", "조문제목", "조문내용", "시행규칙 조문", "해당여부", "하위조문내용", "내용해시"],
     )
 
 
@@ -238,7 +314,7 @@ def _create_junsu_sheet(wb) -> None:
 
     # 추가 입력 열 (E~I)
     _extra_cols = [
-        (5, "주요 내용",    50),
+        (5, "조문 내용",    50),
         (6, "주관부서",     15),
         (7, "필요업무내용", 50),
         (8, "준수평가",     15),
@@ -278,10 +354,11 @@ def _create_junsu_sheet(wb) -> None:
 
     # ── 4행: VBA 서식 참조용 템플릿 행 (값 없음, 서식만) ──────────────────────
     # VBA가 ws4.Rows(4).Copy → PasteSpecial xlPasteFormats 로 신규 행 서식 복사
-    _da = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    _da   = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    _da_l = Alignment(horizontal="left",   vertical="center", wrap_text=True)
     for col_idx in range(1, 10):
         cell = ws.cell(row=4, column=col_idx)
-        cell.alignment = _da
+        cell.alignment = _da_l if col_idx == 5 else _da   # E(조문 내용)은 좌측 정렬
         cell.fill = _ODD_FILL
 
 
@@ -392,6 +469,8 @@ def export(
         ws_main = writer.sheets["1. 전체법령"]
         _style_sheet(ws_main, combined_df, center_data=True)
         _add_haedan_dropdown(ws_main, nrows)
+        ws_main.column_dimensions["F"].hidden = True  # 하위조문내용(VBA 전용) 숨김
+        ws_main.column_dimensions["G"].hidden = True  # 내용해시(내용변경 감지용) 숨김
 
         # 2. 법규준수평가 시트 (VBA 대기용 헤더+템플릿행만 생성)
         _create_junsu_sheet(writer.book)
@@ -423,8 +502,12 @@ def export_multi(
             _style_sheet(ws, combined_df, center_data=True, header_row=2)
             _add_haedan_dropdown(ws, len(combined_df), start_row=3)
             _set_print_layout(ws)
+            ws.column_dimensions["F"].hidden = True  # 하위조문내용(VBA 전용) 숨김
+            ws.column_dimensions["G"].hidden = True  # 내용해시(내용변경 감지용) 숨김
             if _is_admrul_df(combined_df):
                 ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
+            for r in range(3, ws.max_row + 1):
+                ws.row_dimensions[r].height = 65  # F열 장문에 따른 행높이 자동팽창 방지(고정 65)
 
         # Sheet 1: 법규준수평가 — 생성 후 맨 앞으로 이동
         _create_junsu_sheet(writer.book)

@@ -3,8 +3,9 @@
 
 - 각 법령 시트(2번~)를 최신 API 조문으로 교체
 - 기존 D열(해당여부) O/X 보존
-- 신설·변경 조문: 노란색 배경 (최신 업데이트 분만)
-- '변경사항' 시트: 전체 변경 이력 누적
+- 개정 행: 연노랑(FFF2CC) / 실제 개정된 tier(법·시행령·시행규칙) 셀: 진노랑(FFD966)
+- 번호·제목이 같아도 조문 본문(내용해시)이 달라지면 '내용변경'으로 감지
+- '변경사항' 시트: tier별 변경 이력 누적
 """
 import re
 from datetime import datetime
@@ -27,13 +28,18 @@ def _header_row(ws) -> int:
             return r
     return 1
 
-_YELLOW_FILL   = PatternFill(start_color="FFFF99", end_color="FFFF99", fill_type="solid")
+_ROW_CHANGE_FILL  = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")  # 개정 행
+_TIER_CHANGE_FILL = PatternFill(start_color="FFD966", end_color="FFD966", fill_type="solid")  # 개정된 tier 셀
 _HISTORY_SHEET = "변경사항"
-_HISTORY_HEADERS = ["업데이트 날짜", "법령명", "조문번호", "조문명", "변경유형"]
+_HISTORY_HEADERS = ["업데이트 날짜", "법령명", "구분", "조문번호", "조문명", "변경유형"]
 
 _ART_NUM_RE = re.compile(r'^제\d+조(?:의\d+)?')
 _COLS       = ["A", "B", "C"]
 _COL_NAMES  = ["법률 조문", "시행령 조문", "시행규칙 조문"]
+
+# tier: (시트 열번호, 새 DataFrame 열이름, 구분 라벨)
+_TIERS_STD = [(2, "법률 조문", "법"), (3, "시행령 조문", "시행령"), (4, "시행규칙 조문", "시행규칙")]
+_TIERS_ADM = [(2, "조문제목", "조문")]
 
 _THIN   = Side(style="thin")
 _BORDER = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
@@ -113,66 +119,103 @@ def _apply_ox(new_df: pd.DataFrame,
 
 # ─── 변경 감지 ────────────────────────────────────────────────────────────────
 
-def _read_old_articles(ws, hdr: int = 1) -> dict:
-    """기존 시트에서 {(col, num): set_of_titles} 반환.
-    동일 조문번호가 여러 행에 걸쳐 있는 경우(의N 파싱 오류 호환)를 위해 set 사용."""
-    result: dict[tuple, set] = {}
+def _read_old_articles(ws, hdr: int = 1) -> tuple[dict, dict]:
+    """기존 시트에서 tier별 제목·내용해시 반환.
+    반환: (old_by_tier={시트열: {번호: {제목들}}}, old_hash={시트열: {번호: 내용해시}})
+    법(B)·시행령(C)·시행규칙(D)을 각각 독립 수집. 내용해시는 숨김 G열(7번째)의
+    '법|시행령|시행규칙' 해시에서 tier별로 파싱. (행정규칙은 조문제목(B) 1개 tier.)"""
+    is_adm = str(ws.cell(hdr, 2).value).strip() == "조문제목"
+    tiers  = _TIERS_ADM if is_adm else _TIERS_STD
+    old:  dict[int, dict[str, set]] = {sc: {} for sc, _, _ in tiers}
+    oldh: dict[int, dict[str, str]] = {sc: {} for sc, _, _ in tiers}
     for row in ws.iter_rows(min_row=hdr + 1, values_only=True):
-        if len(row) < 4:
-            continue
-        col, num, title = _primary_key_col(
-            row[1] or "", row[2] or "", row[3] or ""
-        )
-        if col and num:
-            result.setdefault((col, num), set()).add(title)
-    return result
+        gval = str(row[6]) if len(row) >= 7 and row[6] else ""
+        segs = gval.split("|")
+        for i, (sc, _, _) in enumerate(tiers):
+            val = row[sc - 1] if len(row) >= sc else None
+            num, title = _parse_art_cell(str(val) if val else "")
+            if num:
+                old[sc].setdefault(num, set()).add(title)
+                if i < len(segs) and segs[i]:
+                    oldh[sc].setdefault(num, segs[i])
+    return old, oldh
 
 
-def _detect_changes(old_articles: dict,
+def _detect_changes(old_by_tier: dict, old_hash: dict,
                     new_df: pd.DataFrame,
                     is_admrul: bool = False) -> tuple[list, list]:
     """
-    old_articles: {(col, num): set_of_titles}
-    반환: (change_types, deleted_list)
-      change_types: 각 행당 "동일" | "신설" | "변경"
-      deleted_list: [{"조문번호", "조문명", "변경유형": "삭제"}, ...]
+    tier별 조문 비교로 개정 항목을 감지한다.
+    번호·제목이 같아도 내용해시가 달라지면 '내용변경'으로 감지한다.
+    반환: (row_orange, changes)
+      row_orange : 각 새 행마다 개정된 tier 시트열번호 집합
+      changes    : [{"구분","조문번호","조문명","변경유형"}]
+                   (신설/변경/내용변경/삭제, tier별·중복제거)
     """
-    # (col, title) → num 역방향 맵 (각 col에서 첫 번째 제목 기준)
-    old_by_title: dict[tuple, str] = {}
-    for (col, num), titles in old_articles.items():
-        for t in titles:
-            old_by_title.setdefault((col, t), num)
+    tiers = _TIERS_ADM if is_admrul else _TIERS_STD
 
-    matched_old: set = set()
-    change_types: list = []
+    # tier별 (제목 → 번호) 역방향 맵
+    old_by_title = {sc: {} for sc in old_by_tier}
+    for sc, m in old_by_tier.items():
+        for num, titles in m.items():
+            for t in titles:
+                old_by_title[sc].setdefault(t, num)
+
+    matched = {sc: set() for sc in old_by_tier}
+    row_orange: list = []
+    changes:    list = []
+    seen:       set  = set()
+
+    def _add(label, num, title, ctype):
+        k = (label, num, title, ctype)
+        if k not in seen:
+            seen.add(k)
+            changes.append({"구분": label, "조문번호": num,
+                            "조문명": title, "변경유형": ctype})
 
     for _, row in new_df.iterrows():
-        col, num, title = _primary_key_col(*_row_triple(row, is_admrul))
-        if (col, num) in old_articles:
-            matched_old.add((col, num))
-            old_titles = old_articles[(col, num)]
-            change_types.append("동일" if title in old_titles else "변경")
-        elif (col, title) in old_by_title:
-            old_num = old_by_title[(col, title)]
-            matched_old.add((col, old_num))
-            change_types.append("변경")          # 번호 이동
-        else:
-            change_types.append("신설")
+        new_segs = str(row.get("내용해시", "") or "").split("|")
+        oranges: set = set()
+        for i, (sc, dfcol, label) in enumerate(tiers):
+            num, title = _parse_art_cell(str(row.get(dfcol, "") or ""))
+            if not num:
+                continue
+            oldm = old_by_tier.get(sc, {})
+            newh = new_segs[i] if i < len(new_segs) else ""
+            if num in oldm:
+                matched[sc].add(num)
+                if title in oldm[num]:
+                    oh = old_hash.get(sc, {}).get(num)
+                    # 번호·제목 동일 → 내용해시로 본문 변경 확인 (옛 해시 있을 때만)
+                    status = "내용변경" if (oh and newh and newh != oh) else "동일"
+                else:
+                    status = "변경"                        # 제목 변경
+            elif title and title in old_by_title.get(sc, {}):
+                matched[sc].add(old_by_title[sc][title])    # 번호 이동
+                status = "변경"
+            else:
+                status = "신설"
+            if status != "동일":
+                oranges.add(sc)
+                _add(label, num, title, status)
+        row_orange.append(oranges)
 
-    deleted = [
-        {"조문번호": num, "조문명": title, "변경유형": "삭제"}
-        for (col, num), titles in old_articles.items()
-        if (col, num) not in matched_old
-        for title in titles
-    ]
-    return change_types, deleted
+    # 삭제: 옛 조문 중 새 데이터에서 매칭되지 않은 것
+    for sc, dfcol, label in tiers:
+        for num, titles in old_by_tier.get(sc, {}).items():
+            if num not in matched[sc]:
+                for t in titles:
+                    _add(label, num, t, "삭제")
+
+    return row_orange, changes
 
 
 # ─── 시트 재작성 ─────────────────────────────────────────────────────────────
 
-def _rewrite_sheet(ws, new_df: pd.DataFrame, change_types: list,
+def _rewrite_sheet(ws, new_df: pd.DataFrame, row_orange: list,
                    law_name: str, is_admrul: bool = False) -> None:
-    """기존 내용 전체 삭제 후 제목행+헤더+데이터 재작성. 신설·변경 행은 노란색.
+    """기존 내용 전체 삭제 후 제목행+헤더+데이터 재작성.
+    개정 행은 A~D 연노랑, 실제 개정된 tier 셀은 진노랑.
     레이아웃: 1행=제목 / 2행=헤더 / 3행~=데이터 (구 레이아웃 파일도 신 레이아웃으로 정규화)."""
     for mc in list(ws.merged_cells.ranges):
         ws.unmerge_cells(str(mc))
@@ -188,44 +231,61 @@ def _rewrite_sheet(ws, new_df: pd.DataFrame, change_types: list,
         if is_admrul:
             ws.append([
                 row["No."], row.get("조문제목", ""), row.get("조문내용", ""),
-                "", row["해당여부"],
+                "", row["해당여부"], row.get("하위조문내용", ""), row.get("내용해시", ""),
             ])
         else:
             ws.append([
                 row["No."], row["법률 조문"], row["시행령 조문"],
-                row["시행규칙 조문"], row["해당여부"],
+                row["시행규칙 조문"], row["해당여부"], row.get("하위조문내용", ""), row.get("내용해시", ""),
             ])
 
     _style_sheet(ws, new_df, header_row=2)
 
-    for row_idx, ct in enumerate(change_types, start=3):
-        if ct in ("신설", "변경"):
-            for col_idx in range(1, 5):
-                ws.cell(row=row_idx, column=col_idx).fill = _YELLOW_FILL
+    for row_idx, oranges in enumerate(row_orange, start=3):
+        if not oranges:
+            continue
+        for col_idx in range(1, 5):                     # 개정 행: A~D 연노랑
+            ws.cell(row=row_idx, column=col_idx).fill = _ROW_CHANGE_FILL
+        for sc in oranges:                              # 실제 개정된 tier 셀: 진노랑
+            ws.cell(row=row_idx, column=sc).fill = _TIER_CHANGE_FILL
 
     _add_haedan_dropdown(ws, len(new_df), start_row=3)
     _set_print_layout(ws)
+    ws.column_dimensions["F"].hidden = True  # 하위조문내용(VBA 전용) 숨김
+    ws.column_dimensions["G"].hidden = True  # 내용해시(내용변경 감지용) 숨김
     if is_admrul:
         ws.column_dimensions["D"].hidden = True  # 미사용 placeholder 열
+    for r in range(3, ws.max_row + 1):
+        ws.row_dimensions[r].height = 65  # F열 장문에 따른 행높이 자동팽창 방지(고정 65)
 
 
 # ─── 변경사항 시트 ────────────────────────────────────────────────────────────
 
 def _ensure_history_sheet(wb):
-    """변경사항 시트 없으면 생성, 있으면 반환."""
+    """변경사항 시트 없으면 생성, 있으면 반환.
+    구(舊) 스키마(구분 열 없음)면 C열에 '구분'을 삽입해 마이그레이션한다."""
+    from openpyxl.utils import get_column_letter
     if _HISTORY_SHEET in wb.sheetnames:
-        return wb[_HISTORY_SHEET]
+        ws = wb[_HISTORY_SHEET]
+        if str(ws.cell(1, 3).value).strip() != "구분":
+            ws.insert_cols(3)
+            cell = ws.cell(row=1, column=3, value="구분")
+            cell.fill      = _HEADER_FILL
+            cell.font      = _HEADER_FONT
+            cell.alignment = _HEADER_ALIGN
+            cell.border    = _BORDER
+            ws.column_dimensions["C"].width = 10
+        return ws
 
     ws = wb.create_sheet(_HISTORY_SHEET)
     ws.append(_HISTORY_HEADERS)
-    widths = [14, 36, 14, 32, 10]
+    widths = [14, 36, 10, 14, 32, 10]
     for col_idx, (h, w) in enumerate(zip(_HISTORY_HEADERS, widths), start=1):
         cell = ws.cell(row=1, column=col_idx)
         cell.fill      = _HEADER_FILL
         cell.font      = _HEADER_FONT
         cell.alignment = _HEADER_ALIGN
         cell.border    = _BORDER
-        from openpyxl.utils import get_column_letter
         ws.column_dimensions[get_column_letter(col_idx)].width = w
     ws.freeze_panes = "A2"
     ws.row_dimensions[1].height = 28
@@ -239,12 +299,13 @@ def _append_history(ws_hist, today: str,
         ws_hist.append([
             today,
             law_name,
+            change.get("구분", ""),
             change["조문번호"],
             change["조문명"],
             change["변경유형"],
         ])
         row_idx = ws_hist.max_row
-        for col_idx in range(1, 6):
+        for col_idx in range(1, 7):
             cell = ws_hist.cell(row=row_idx, column=col_idx)
             cell.font      = Font(size=9)
             cell.alignment = Alignment(vertical="center")
@@ -280,7 +341,7 @@ def update_file(
 
         hdr = _header_row(sheet)
         ox_by_num, ox_by_title = _read_ox_map(sheet, hdr)
-        old_articles           = _read_old_articles(sheet, hdr)
+        old_by_tier, old_hash  = _read_old_articles(sheet, hdr)
         preserved = sum(1 for v in ox_by_num.values() if v == "O")
         print(f"    기존 O 표시 조문: {preserved}개 보존 예정")
 
@@ -294,22 +355,19 @@ def update_file(
         is_admrul = "조문제목" in new_df.columns
         new_df = _apply_ox(new_df, ox_by_num, ox_by_title, is_admrul)
 
-        change_types, deleted = _detect_changes(old_articles, new_df, is_admrul)
+        row_orange, changes = _detect_changes(old_by_tier, old_hash, new_df, is_admrul)
 
-        cnt = {t: change_types.count(t) for t in ("신설", "변경", "동일")}
-        print(f"    완료 ({len(new_df)}행) — 신설 {cnt['신설']}, 변경 {cnt['변경']}, 삭제 {len(deleted)}")
+        cnt = {t: sum(1 for c in changes if c["변경유형"] == t)
+               for t in ("신설", "변경", "내용변경", "삭제")}
+        print(f"    완료 ({len(new_df)}행) — 신설 {cnt['신설']}, 변경 {cnt['변경']}, "
+              f"내용변경 {cnt['내용변경']}, 삭제 {cnt['삭제']}")
 
-        _rewrite_sheet(sheet, new_df, change_types, law_name, is_admrul)
+        _rewrite_sheet(sheet, new_df, row_orange, law_name, is_admrul)
         updated += 1
 
-        # 이력 수집
-        for i, (_, row) in enumerate(new_df.iterrows()):
-            if change_types[i] in ("신설", "변경"):
-                col, num, title = _primary_key_col(*_row_triple(row, is_admrul))
-                all_changes.append((law_name,
-                    {"조문번호": num, "조문명": title, "변경유형": change_types[i]}))
-        for d in deleted:
-            all_changes.append((law_name, d))
+        # 이력 수집 (tier별)
+        for ch in changes:
+            all_changes.append((law_name, ch))
 
     # 변경사항 시트 갱신
     if all_changes:

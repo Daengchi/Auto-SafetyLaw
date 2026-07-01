@@ -25,11 +25,12 @@ _SEP_FSIZE   = 15
 # ── ThisWorkbook: 이벤트 핸들러 ────────────────────────────────────────────────
 VBA_THISWORKBOOK = f"""Option Explicit
 
-Private Const KEY_COL   As Integer = 10
-Private Const ORD_COL   As Integer = 11
-Private Const HAE_COL   As Integer = 5
-Private Const HDR_ROW   As Integer = 3
-Private Const DAT_ROW   As Integer = 4
+Private Const KEY_COL     As Integer = 10
+Private Const ORD_COL     As Integer = 11
+Private Const HAE_COL     As Integer = 5
+Private Const CONTENT_COL As Integer = 6
+Private Const HDR_ROW     As Integer = 3
+Private Const DAT_ROW     As Integer = 4
 Private Const EVAL_SH   As String  = "1. 법규준수평가"
 Private Const HDR_PFX   As String  = "HEADER_"
 Private Const SEP_BG    As Long    = {_SEP_BG_CLR}
@@ -74,7 +75,7 @@ Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
     Dim headerKey As String
     headerKey = HDR_PFX & Sh.Name
 
-    Dim key As String, bVal As String, cVal As String, dVal As String
+    Dim key As String, bVal As String, cVal As String, dVal As String, eVal As String
     Dim ordKey As Long, lastRow As Long, sectionEnd As Long
     Dim insertAt As Long, nr As Long
     Dim isDupe As Boolean, headerRow As Long
@@ -90,6 +91,7 @@ Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
         bVal   = Sh.Cells(tgt.Row, 2).Value
         cVal   = Sh.Cells(tgt.Row, 3).Value
         dVal   = Sh.Cells(tgt.Row, 4).Value
+        eVal   = Sh.Cells(tgt.Row, CONTENT_COL).Value    ' 하위조문내용(숨김 F열)
         If isAdm Then cVal = "": dVal = ""
         key    = Sh.Name & "||" & bVal & "||" & cVal & "||" & dVal
         ordKey = CLng(shOrder) * 1000000 + CLng(tgt.Row)
@@ -168,7 +170,7 @@ Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
             ws1.Cells(nr, 2).Value       = bVal
             ws1.Cells(nr, 3).Value       = cVal
             ws1.Cells(nr, 4).Value       = dVal
-            ws1.Cells(nr, 5).Value       = ""
+            ws1.Cells(nr, 5).Value       = eVal
             ws1.Cells(nr, 6).Value       = ""
             ws1.Cells(nr, 7).Value       = ""
             ws1.Cells(nr, 8).Value       = ""
@@ -184,6 +186,8 @@ Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
                     .Interior.Color      = RGB(255, 255, 255)
                 End With
             Next c
+            ws1.Cells(nr, 5).Font.Size = 8                       ' 조문 내용은 8pt
+            ws1.Cells(nr, 5).HorizontalAlignment = xlHAlignLeft  ' 조문 내용 좌측 정렬
             With ws1.Range(ws1.Cells(nr, 1), ws1.Cells(nr, 9)).Borders
                 .LineStyle = xlContinuous
                 .Weight    = xlThin
