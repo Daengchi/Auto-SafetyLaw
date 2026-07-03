@@ -25,7 +25,7 @@ from src import parser, snapshot, reporter
 DATA_DIR        = os.path.join(os.path.dirname(__file__), "data")
 OUTPUT_DIR      = os.path.join(os.path.dirname(__file__), "output")
 LAWS_FILE       = os.path.join(os.path.dirname(__file__), "..", "laws.json")
-AMENDMENTS_FILE = os.path.join(os.path.dirname(__file__), "..", "amendments.json")
+AMENDMENTS_FILE = os.path.join(os.path.dirname(__file__), "..", "프로그램", "amendments.json")
 
 
 def _norm(s: str) -> str:

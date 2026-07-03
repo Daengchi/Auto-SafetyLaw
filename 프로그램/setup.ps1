@@ -58,14 +58,14 @@ OK
 
 # 3/5: Move Portable Git
 Step "3/5" "Moving Portable Git..."
-Move-Item $TEMPGIT "$INSTALL_DIR\git-portable"
+Move-Item $TEMPGIT "$INSTALL_DIR\프로그램\git-portable"
 $safeDir = $INSTALL_DIR.Replace('\', '/')
-& "$INSTALL_DIR\git-portable\cmd\git.exe" config --system safe.directory $safeDir
+& "$INSTALL_DIR\프로그램\git-portable\cmd\git.exe" config --system safe.directory $safeDir
 OK
 
 # 4/5: Python setup
 Step "4/5" "Setting up Python (may take a few minutes)..."
-$PYDIR = "$INSTALL_DIR\python"
+$PYDIR = "$INSTALL_DIR\프로그램\python"
 New-Item -ItemType Directory -Path $PYDIR -Force | Out-Null
 try {
     Invoke-WebRequest $PY_URL -OutFile "$env:TEMP\py-embed.zip" -UseBasicParsing
@@ -93,7 +93,7 @@ OK
 Step "5/5" "Creating config files..."
 
 if (-not (Test-Path "$INSTALL_DIR\laws.json")) {
-    $ex = Get-Item "$INSTALL_DIR\laws.json.example" -ErrorAction SilentlyContinue
+    $ex = Get-Item "$INSTALL_DIR\프로그램\laws.json.example" -ErrorAction SilentlyContinue
     if ($ex) { Copy-Item $ex.FullName "$INSTALL_DIR\laws.json" }
 }
 
@@ -114,7 +114,7 @@ foreach ($proj in $projFolders) {
     }
 }
 
-New-Item -ItemType Directory -Path "$INSTALL_DIR\logs" -Force | Out-Null
+New-Item -ItemType Directory -Path "$INSTALL_DIR\프로그램\logs" -Force | Out-Null
 OK
 
 # Done
@@ -139,7 +139,7 @@ Write-Host ""
 
 $reg = Read-Host "Register Task Scheduler? (Weekdays 09:00 auto-run) [Y/N]"
 if ($reg -ieq 'Y') {
-    $bat = Get-ChildItem $INSTALL_DIR -Filter "*자동실행*" | Select-Object -First 1
+    $bat = Get-ChildItem "$INSTALL_DIR\프로그램" -Filter "*자동실행*" | Select-Object -First 1
     if ($bat) {
         try {
             Register-ScheduledTask `

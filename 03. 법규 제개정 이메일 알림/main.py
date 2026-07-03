@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 from src import composer, emailer
 
 
-AMENDMENTS_FILE = os.path.join(os.path.dirname(__file__), "..", "amendments.json")
+AMENDMENTS_FILE = os.path.join(os.path.dirname(__file__), "..", "프로그램", "amendments.json")
 RECIPIENTS_FILE = os.path.join(os.path.dirname(__file__), "recipients.json")
 
 

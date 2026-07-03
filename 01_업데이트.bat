@@ -2,8 +2,8 @@
 chcp 65001 >nul
 set PYTHONUTF8=1
 set ROOT=%~dp0
-if exist "%ROOT%python\python.exe" (set PY=%ROOT%python\python.exe) else (set PY=python)
-set GIT=%ROOT%git-portable\cmd\git.exe
+if exist "%ROOT%프로그램\python\python.exe" (set PY=%ROOT%프로그램\python\python.exe) else if exist "%ROOT%python\python.exe" (set PY=%ROOT%python\python.exe) else (set PY=python)
+if exist "%ROOT%프로그램\git-portable\cmd\git.exe" (set GIT=%ROOT%프로그램\git-portable\cmd\git.exe) else (set GIT=%ROOT%git-portable\cmd\git.exe)
 
 echo 코드 업데이트 확인 중...
 set SAFE_DIR=%ROOT:~0,-1%
