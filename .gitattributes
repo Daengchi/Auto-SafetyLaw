@@ -1,2 +1,2 @@
 # Windows 배치 파일은 항상 CRLF 줄바꿈으로 저장 (cmd.exe + UTF-8 한글 호환)
-*.bat -text
+*.bat text eol=crlf
