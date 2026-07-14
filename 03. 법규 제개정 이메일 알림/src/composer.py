@@ -32,6 +32,15 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _article_title(art: dict) -> str:
+    """조문 제목: '제33조(안전보건교육기관)'.
+    조문번호는 '제33조'·'별표 1'처럼 이미 완성된 표기이므로 그대로 쓴다."""
+    제목 = art.get("조문번호", "")
+    if art.get("조문명"):
+        제목 += f"({art['조문명']})"
+    return 제목
+
+
 def _trim(text: str) -> str:
     text = (text or "").strip()
     if len(text) <= MAX_CONTENT_LEN:
@@ -50,9 +59,7 @@ def _build_text(amendments: list, today: str) -> str:
         lines.append(f"   개정 조문 수: {law['개정조문수']}개")
         lines.append("")
         for art in law.get("조문", []):
-            제목 = f"제{art['조문번호']}조"
-            if art.get("조문명"):
-                제목 += f"({art['조문명']})"
+            제목 = _article_title(art)
             lines.append(f"  · {제목}")
             lines.append(f"    [구법] {_trim(_strip_p(art.get('구법내용', '')))}")
             lines.append(f"    [신법] {_trim(_strip_p(art.get('신법내용', '')))}")
@@ -82,9 +89,7 @@ def _render_content_html(text: str) -> str:
 
 
 def _article_html(art: dict) -> str:
-    제목 = f"제{art['조문번호']}조"
-    if art.get("조문명"):
-        제목 += f"({art['조문명']})"
+    제목 = _article_title(art)
     old = (art.get("구법내용") or "").strip()
     new = (art.get("신법내용") or "").strip()
 

@@ -273,12 +273,19 @@ def parse_old_new(xml_text: str) -> tuple[dict, list[dict]]:
     for no in all_nos:
         old_raw = old_map.get(no, "")
         new_raw = new_map.get(no, "")
-        ref_text = old_raw or new_raw
 
-        m_art = _ARTICLE_START_RE.search(ref_text)
-        is_article = m_art and ref_text.lstrip().startswith(m_art.group(0))
+        # 번호·제목 판별은 <P> 변경마커를 벗긴 텍스트로 한다.
+        # 신설 조문은 구조문이 "<신  설>"이라 번호가 없으므로 신조문에서 찾는다.
+        ref_text = _P_TAG_RE.sub("", old_raw).lstrip()
+        m_art = _ARTICLE_START_RE.match(ref_text)
+        if not m_art:
+            new_text = _P_TAG_RE.sub("", new_raw).lstrip()
+            m_art = _ARTICLE_START_RE.match(new_text)
+            if m_art or not ref_text:
+                ref_text = new_text
 
-        m_annex = (not is_article) and _ANNEX_START_RE.match(ref_text.lstrip())
+        is_article = bool(m_art)
+        m_annex = (not is_article) and _ANNEX_START_RE.match(ref_text)
 
         if is_article:
             if current is not None:
