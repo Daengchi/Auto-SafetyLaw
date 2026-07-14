@@ -187,3 +187,76 @@ def build(data: dict) -> tuple[str, str, str]:
     text_body = _build_text(amendments, today)
     html_body = _build_html(amendments, today)
     return subject, text_body, html_body
+
+
+def build_heartbeat(data: dict) -> tuple[str, str, str]:
+    """
+    개정이 없는 주에 발송하는 생존 확인 메일.
+    이 메일이 오지 않으면 자동 실행이 멈춘 것이므로, 침묵과 정상을 구분해준다.
+    """
+    today   = datetime.now().strftime("%Y-%m-%d")
+    점검건수 = data.get("점검건수", "-")
+    오류건수 = data.get("오류건수", 0)
+    최근점검 = data.get("생성일시", "-").replace("T", " ")
+
+    상태  = "정상" if not 오류건수 else f"주의 - 조회 오류 {오류건수}건"
+    색상  = BRAND if not 오류건수 else "#C77700"
+    subject = f"[법규 모니터링] 주간 정상 동작 확인 ({today})"
+
+    text_body = "\n".join([
+        "안전보건 법규 제개정 모니터링 시스템이 정상 동작 중입니다.",
+        "",
+        f"  상태      : {상태}",
+        f"  최근 점검  : {최근점검}",
+        f"  점검 법령  : {점검건수}건",
+        f"  개정 사항  : 없음",
+        f"  조회 오류  : {오류건수}건",
+        "",
+        "이 메일은 개정 사항이 없는 주에 1회(월요일) 발송됩니다.",
+        "메일이 도착하지 않으면 자동 실행이 중단된 것이므로 확인이 필요합니다.",
+    ])
+
+    def row(label, value):
+        return (
+            '<tr>'
+            '<td style="padding:7px 0;color:#888888;font-size:13px;width:110px;">'
+            f'{_esc(label)}</td>'
+            '<td style="padding:7px 0;color:#333333;font-size:13px;font-weight:bold;">'
+            f'{_esc(str(value))}</td></tr>'
+        )
+
+    html_body = (
+        '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0"></head>'
+        '<body style="margin:0;padding:0;background-color:#f0f0f2;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="background-color:#f0f0f2;padding:24px 0;'
+        "font-family:'Malgun Gothic','맑은 고딕',Arial,sans-serif;\">"
+        '<tr><td align="center">'
+        '<table role="presentation" width="640" cellpadding="0" cellspacing="0" '
+        'style="width:640px;max-width:640px;background-color:#ffffff;'
+        'border-radius:8px;overflow:hidden;border:1px solid #e5e5e5;">'
+        f'<tr><td style="background-color:{색상};padding:26px 32px;">'
+        '<div style="color:#ffffff;font-size:21px;font-weight:bold;">'
+        '모니터링 정상 동작 확인</div>'
+        '<div style="color:#ffffff;opacity:0.85;font-size:13px;margin-top:7px;">'
+        f'기준일 {today} &nbsp;·&nbsp; 상태 {_esc(상태)}</div></td></tr>'
+        '<tr><td style="padding:24px 32px 8px;color:#333333;font-size:14px;'
+        'line-height:1.7;">이번 주 점검 결과 개정된 법령은 없습니다. '
+        '시스템은 정상 동작 중입니다.</td></tr>'
+        '<tr><td style="padding:8px 32px 24px;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-top:1px solid #eeeeee;">'
+        + row("최근 점검", 최근점검)
+        + row("점검 법령", f"{점검건수}건")
+        + row("개정 사항", "없음")
+        + row("조회 오류", f"{오류건수}건")
+        + '</table></td></tr>'
+        '<tr><td style="background-color:#fafafa;padding:18px 32px;color:#999999;'
+        'font-size:12px;border-top:1px solid #eeeeee;line-height:1.6;">'
+        '이 메일은 개정 사항이 없는 주에 1회(월요일) 발송됩니다. '
+        '메일이 도착하지 않으면 자동 실행이 중단된 것이므로 확인이 필요합니다.'
+        '</td></tr>'
+        '</table></td></tr></table></body></html>'
+    )
+    return subject, text_body, html_body

@@ -397,6 +397,8 @@ def main() -> None:
     # 개정분을 amendments.json으로 출력 (03. 이메일 알림 프로젝트가 소비)
     amendments = {
         "생성일시": datetime.now().strftime("%Y-%m-%dT%H:%M"),
+        "점검건수": len(results),
+        "오류건수": len(errors),
         "개정": [
             {
                 "법령명":     r["law_name"],
