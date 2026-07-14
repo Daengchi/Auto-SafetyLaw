@@ -11,6 +11,7 @@ amendments.json
 logs/
 **/output/
 02. 제개정사항 모니터링/data/
+03. 법규 제개정 이메일 알림/email_preview.html
 
 # Python 캐시
 __pycache__/
