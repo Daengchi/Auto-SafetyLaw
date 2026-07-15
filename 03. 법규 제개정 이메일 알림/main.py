@@ -63,8 +63,12 @@ def main() -> None:
 
     if args.dry_run:
         preview = os.path.join(os.path.dirname(__file__), "email_preview.html")
+        # 브라우저는 cid:를 못 읽으므로 미리보기에서는 로컬 경로로 바꿔 저장
+        html_preview = html_body
+        for cid, (filename, _) in composer.IMAGES.items():
+            html_preview = html_preview.replace(f"cid:{cid}", f"assets/{filename}")
         with open(preview, "w", encoding="utf-8") as f:
-            f.write(html_body)
+            f.write(html_preview)
         print(f"제목: {subject}\n{'─' * 60}\n{text_body}")
         print(f"{'─' * 60}\nHTML 미리보기 저장: {preview}")
         return

@@ -18,7 +18,26 @@ from datetime import datetime
 MAX_CONTENT_LEN = 300   # 조문 내용이 길면 잘라서 표시
 GREETING = "아래의 내용과 같이 시행된 개정법령 사항들을 안내드리오니 업무에 참조하시기 바랍니다"
 
-BRAND = "#ED1C24"       # 회사 공식 레드 (RGB 237,28,36)
+BRAND  = "#17365D"      # 짙은 남색 (주 강조색)
+ACCENT = "#F2A900"      # 노란색 (대비·강조 포인트)
+
+# 헤더 이미지: CID로 메일에 함께 담아 표시 (외부 이미지 차단 회피)
+# {cid: (파일명, 대체텍스트)} — emailer가 HTML이 참조하는 것만 첨부한다.
+IMAGES = {
+    "banner": ("banner.png", "금호석유화학 · 법규 제개정 알림 서비스"),
+    "notice": ("notice.png", "개정 법령에 대해 법규준수평가를 진행해주세요"),
+}
+BANNER_CID = "banner"
+
+
+def _image_html(cid: str) -> str:
+    _, alt = IMAGES[cid]
+    return (
+        '<tr><td style="padding:0;font-size:0;line-height:0;">'
+        f'<img src="cid:{cid}" width="640" alt="{_esc(alt)}" '
+        'style="display:block;width:100%;max-width:640px;height:auto;border:0;">'
+        '</td></tr>'
+    )
 
 _P_RE = re.compile(r'<P>(.*?)</P>', re.IGNORECASE | re.DOTALL)
 
@@ -111,17 +130,17 @@ def _article_html(art: dict) -> str:
 
     parts = [title_html]
     if not old:          # 신설
-        parts.append(box("신설", BRAND, "#fff0f1",
-                         f"border-left:3px solid {BRAND};", "#222222",
+        parts.append(box("신설", BRAND, "#FFEBB8",
+                         f"border-left:3px solid {ACCENT};", "#222222",
                          _render_content_html(new)))
     elif not new:        # 삭제
-        parts.append(box("삭제", "#999999", "#f4f4f4", "", "#999999",
+        parts.append(box("삭제", "#999999", "#EAF0F8", "", "#999999",
                          _render_content_html(old), strike=True))
     else:                # 개정
-        parts.append(box("구법", "#aaaaaa", "#f4f4f4", "", "#888888",
+        parts.append(box("구법", "#aaaaaa", "#EAF0F8", "", "#888888",
                          _render_content_html(old)))
-        parts.append(box("신법", BRAND, "#fff0f1",
-                         f"border-left:3px solid {BRAND};", "#222222",
+        parts.append(box("신법", BRAND, "#FFEBB8",
+                         f"border-left:3px solid {ACCENT};", "#222222",
                          _render_content_html(new)))
     return "".join(parts)
 
@@ -133,15 +152,15 @@ def _law_card_html(law: dict) -> str:
         '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
         'style="border:1px solid #eeeeee;border-radius:6px;">'
         # 법령 헤더
-        f'<tr><td style="padding:16px 20px;border-left:4px solid {BRAND};'
-        'background-color:#fff8f8;">'
-        f'<span style="font-size:16px;font-weight:bold;color:{BRAND};'
-        f'background-color:#FFF0F1;padding:2px 8px;border-radius:3px;">'
+        '<tr><td style="padding:16px 20px;'
+        'background-color:#1D528B;">'
+        f'<span style="font-size:19px;font-weight:bold;color:#ffffff;'
+        f'padding:2px 8px;border-radius:3px;">'
         f'{_esc(law["법령명"])}</span>'
-        '<div style="font-size:13px;color:#666666;margin-top:10px;">'
+        '<div style="font-size:13px;color:#C9D5E5;margin-top:10px;">'
         f'시행일 {_esc(law["이전시행일"])} '
-        f'<span style="color:#999999;">&rarr;</span> '
-        f'<b style="color:{BRAND}">{_esc(law["현재시행일"])}</b>'
+        f'<span style="color:#8AA0BC;">&rarr;</span> '
+        f'<b style="color:#FFD764">{_esc(law["현재시행일"])}</b>'
         '&nbsp;&nbsp;·&nbsp;&nbsp;'
         f'개정 조문 <b>{law["개정조문수"]}</b>개</div></td></tr>'
         # 조문들
@@ -163,14 +182,14 @@ def _build_html(amendments: list, today: str) -> str:
         '<table role="presentation" width="640" cellpadding="0" cellspacing="0" '
         'style="width:640px;max-width:640px;background-color:#ffffff;'
         'border-radius:8px;overflow:hidden;border:1px solid #e5e5e5;">'
-        # 헤더 배너
-        f'<tr><td style="background-color:{BRAND};padding:26px 32px;">'
-        '<div style="color:#ffffff;font-size:21px;font-weight:bold;">'
-        '법규 개정 알림</div>'
-        '<div style="color:#ffd9da;font-size:13px;margin-top:7px;">'
-        f'기준일 {today} &nbsp;·&nbsp; 총 {len(amendments)}개 법령 개정</div></td></tr>'
+        # 헤더 배너 + 법규준수평가 안내 이미지
+        + _image_html("banner") + _image_html("notice") +
+        # 기준일 · 개정 건수
+        '<tr><td style="padding:20px 32px 0;color:#888888;font-size:13px;">'
+        f'기준일 {today} &nbsp;·&nbsp; 총 '
+        f'<b style="color:{BRAND};">{len(amendments)}</b>개 법령 개정</td></tr>'
         # 인사 문구
-        '<tr><td style="padding:24px 32px 4px;color:#333333;font-size:14px;'
+        '<tr><td style="padding:14px 32px 4px;color:#333333;font-size:14px;'
         f'line-height:1.7;">{_esc(GREETING)}</td></tr>'
         # 법령 카드들
         f'{cards}'
@@ -241,12 +260,11 @@ def build_heartbeat(data: dict) -> tuple[str, str, str]:
         '<table role="presentation" width="640" cellpadding="0" cellspacing="0" '
         'style="width:640px;max-width:640px;background-color:#ffffff;'
         'border-radius:8px;overflow:hidden;border:1px solid #e5e5e5;">'
-        f'<tr><td style="background-color:{색상};padding:26px 32px;">'
-        '<div style="color:#ffffff;font-size:21px;font-weight:bold;">'
-        '모니터링 정상 동작 확인</div>'
-        '<div style="color:#ffffff;opacity:0.85;font-size:13px;margin-top:7px;">'
-        f'기준일 {today} &nbsp;·&nbsp; 상태 {_esc(상태)}</div></td></tr>'
-        '<tr><td style="padding:24px 32px 8px;color:#333333;font-size:14px;'
+        + _image_html("banner") +
+        '<tr><td style="padding:20px 32px 0;color:#888888;font-size:13px;">'
+        f'기준일 {today} &nbsp;·&nbsp; 상태 '
+        f'<b style="color:{색상};">{_esc(상태)}</b></td></tr>'
+        '<tr><td style="padding:14px 32px 8px;color:#333333;font-size:14px;'
         'line-height:1.7;">이번 주 점검 결과 개정된 법령은 없습니다. '
         '시스템은 정상 동작 중입니다.</td></tr>'
         '<tr><td style="padding:8px 32px 24px;">'
